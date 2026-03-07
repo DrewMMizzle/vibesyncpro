@@ -34,7 +34,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen w-full flex flex-col bg-background">
-      <header className="absolute top-0 left-0 p-6 sm:p-8">
+      <header className="absolute top-0 left-0 p-6 sm:p-8 z-10">
         <span
           data-testid="text-wordmark"
           className="text-sm font-medium tracking-wide text-muted-foreground/50 select-none"
@@ -43,8 +43,8 @@ export default function Home() {
         </span>
       </header>
 
-      <main className="flex-1 flex items-center justify-center p-6 sm:p-12">
-        <div className="w-full max-w-3xl mx-auto relative">
+      <main className="min-h-screen w-full flex items-center justify-center p-6 sm:p-12" style={{ paddingBottom: '10vh' }}>
+        <div className="w-full max-w-2xl mx-auto">
           <AnimatePresence mode="wait">
             {!isSubmitted ? (
               <motion.form
@@ -54,32 +54,30 @@ export default function Home() {
                 exit={{ opacity: 0, y: -20, filter: "blur(4px)" }}
                 transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
                 onSubmit={handleSubmit}
-                className="flex flex-col gap-12"
+                className="flex flex-col gap-10"
               >
-                <div className="space-y-4">
-                  <motion.label
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.2, duration: 0.5 }}
-                    htmlFor="description"
-                    className="block text-sm font-medium text-muted-foreground uppercase tracking-widest"
-                  >
-                    What are you building?
-                  </motion.label>
-                  
-                  <input
-                    ref={inputRef}
-                    id="description"
-                    data-testid="input-description"
-                    type="text"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="a todo app, a portfolio site, a dashboard..."
-                    className="w-full bg-transparent text-4xl sm:text-5xl md:text-6xl font-light text-foreground placeholder:text-muted-foreground/25 border-b-2 border-muted hover:border-muted-foreground/50 focus:border-foreground focus:outline-none focus:ring-0 pb-4 transition-colors rounded-none"
-                    autoComplete="off"
-                    spellCheck="false"
-                  />
-                </div>
+                <motion.h1
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.2, duration: 0.5 }}
+                  data-testid="text-heading"
+                  className="text-4xl sm:text-5xl md:text-6xl font-light text-muted-foreground/40 tracking-tight"
+                >
+                  What are you building?
+                </motion.h1>
+
+                <input
+                  ref={inputRef}
+                  id="description"
+                  data-testid="input-description"
+                  type="text"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="a todo app, a portfolio site..."
+                  className="w-full bg-transparent text-2xl sm:text-3xl font-light text-foreground placeholder:text-muted-foreground/25 border-b-2 border-muted hover:border-muted-foreground/50 focus:border-foreground focus:outline-none focus:ring-0 pb-4 transition-colors rounded-none"
+                  autoComplete="off"
+                  spellCheck="false"
+                />
 
                 <motion.div 
                   initial={{ opacity: 0 }}
