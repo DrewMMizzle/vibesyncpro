@@ -1,28 +1,11 @@
 import type { Express } from "express";
 import { type Server } from "http";
-import { storage } from "./storage";
-import { api } from "@shared/routes";
-import { z } from "zod";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  app.post(api.projects.create.path, async (req, res) => {
-    try {
-      const input = api.projects.create.input.parse(req.body);
-      const project = await storage.createProject(input);
-      res.status(201).json(project);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({
-          message: err.errors[0].message,
-          field: err.errors[0].path.join('.'),
-        });
-      }
-      throw err;
-    }
-  });
-
+  // Project and user API routes are registered in server/index.ts
+  // via projectsRouter (/api/projects) and usersRouter (/api)
   return httpServer;
 }
