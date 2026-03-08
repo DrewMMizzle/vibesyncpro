@@ -20,10 +20,6 @@ export const sessionMiddleware = session({
 
 declare module "express-session" {
   interface SessionData {
-    githubAccessToken?: string;
-    githubUser?: {
-      username: string;
-      avatarUrl: string;
-    };
+    userId?: number;
   }
 }
