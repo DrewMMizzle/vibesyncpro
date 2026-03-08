@@ -22,8 +22,34 @@
 
 - **Frontend**: Vite + React + TypeScript + Tailwind CSS
 - **Backend**: Node.js + Express + TypeScript
-- **Database**: PostgreSQL via Drizzle ORM (schema in `shared/schema.ts`)
+- **Database**: SQLite via better-sqlite3 (file at `server/data/vibesyncpro.db`, gitignored)
 - **Auth**: GitHub OAuth flow (`server/src/routes/auth.ts`) with express-session
+
+## Database
+
+SQLite with better-sqlite3. Schema created via raw SQL in `server/src/db/schema.ts`.
+
+### Tables
+
+- **users** — GitHub-authenticated users (github_id, username, avatar_url, access_token)
+- **projects** — User-owned projects (name, description, github_repo_url)
+- **platform_connections** — Per-project platform links (replit, claude_code, computer) with sync status
+
+## API Routes
+
+### Auth (`/auth`)
+- `GET /auth/github` — initiates GitHub OAuth
+- `GET /auth/github/callback` — handles OAuth callback, upserts user in DB
+- `GET /auth/me` — returns current user's username and avatar
+- `POST /auth/logout` — destroys session
+
+### Users (`/api`)
+- `GET /api/me` — returns authenticated user from database (id, username, avatar_url, created_at)
+
+### Projects (`/api/projects`)
+- `GET /api/projects` — list all projects for current user (with platform connections)
+- `POST /api/projects` — create a new project (`{ name, description }`)
+- `GET /api/projects/:id` — get a single project with platform connections
 
 ## Environment Variables
 

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { upsertUser, findUserById } from "../db/users";
 
 const router = Router();
 
@@ -6,9 +7,6 @@ const GITHUB_AUTH_URL = "https://github.com/login/oauth/authorize";
 const GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
 const GITHUB_USER_URL = "https://api.github.com/user";
 const SCOPES = "repo read:user";
-
-// In-memory token store (will be replaced with database later)
-const tokenStore = new Map<string, string>();
 
 // GET /auth/github — redirect to GitHub OAuth
 router.get("/github", (req, res) => {
@@ -29,7 +27,7 @@ router.get("/github", (req, res) => {
   return res.redirect(`${GITHUB_AUTH_URL}?${params.toString()}`);
 });
 
-// GET /auth/github/callback — exchange code for token
+// GET /auth/github/callback — exchange code for token, upsert user in DB
 router.get("/github/callback", async (req, res) => {
   const code = req.query.code as string | undefined;
   if (!code) {
@@ -92,19 +90,21 @@ router.get("/github/callback", async (req, res) => {
     }
 
     const userData = (await userResponse.json()) as {
+      id: number;
       login: string;
       avatar_url: string;
     };
 
-    // Store token in memory
-    tokenStore.set(userData.login, accessToken);
+    // Upsert user in database
+    const user = upsertUser(
+      String(userData.id),
+      userData.login,
+      userData.avatar_url,
+      accessToken,
+    );
 
-    // Save to session
-    req.session.githubAccessToken = accessToken;
-    req.session.githubUser = {
-      username: userData.login,
-      avatarUrl: userData.avatar_url,
-    };
+    // Store user ID in session
+    req.session.userId = user.id;
 
     // Redirect to frontend with success
     return res.redirect("/?auth=success");
@@ -116,23 +116,23 @@ router.get("/github/callback", async (req, res) => {
 
 // GET /auth/me — return current user info
 router.get("/me", (req, res) => {
-  if (!req.session.githubUser) {
+  if (!req.session.userId) {
+    return res.status(401).json({ message: "Not authenticated" });
+  }
+
+  const user = findUserById(req.session.userId);
+  if (!user) {
     return res.status(401).json({ message: "Not authenticated" });
   }
 
   return res.json({
-    username: req.session.githubUser.username,
-    avatarUrl: req.session.githubUser.avatarUrl,
+    username: user.username,
+    avatarUrl: user.avatar_url,
   });
 });
 
 // POST /auth/logout — clear session
 router.post("/logout", (req, res) => {
-  const username = req.session.githubUser?.username;
-  if (username) {
-    tokenStore.delete(username);
-  }
-
   req.session.destroy((err) => {
     if (err) {
       return res.status(500).json({ message: "Failed to logout" });
