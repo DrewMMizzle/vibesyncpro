@@ -1,6 +1,3 @@
-// Initialize the database (creates tables on import)
-import "./db/schema";
-
 export { sessionMiddleware } from "./middleware/session";
 export { requireAuth } from "./middleware/requireAuth";
 export { default as authRouter } from "./routes/auth";

@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { upsertUser, findUserById } from "../db/users";
+import crypto from "crypto";
+import { storage } from "../../storage";
 
 const router = Router();
 
@@ -8,7 +9,12 @@ const GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
 const GITHUB_USER_URL = "https://api.github.com/user";
 const SCOPES = "repo read:user";
 
-// GET /auth/github — redirect to GitHub OAuth
+declare module "express-session" {
+  interface SessionData {
+    oauthState?: string;
+  }
+}
+
 router.get("/github", (req, res) => {
   const clientId = process.env.GITHUB_CLIENT_ID;
   if (!clientId) {
@@ -18,21 +24,31 @@ router.get("/github", (req, res) => {
   const callbackUrl =
     process.env.GITHUB_CALLBACK_URL || "http://localhost:5000/auth/github/callback";
 
+  const state = crypto.randomBytes(32).toString("hex");
+  req.session.oauthState = state;
+
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: callbackUrl,
     scope: SCOPES,
+    state,
   });
 
   return res.redirect(`${GITHUB_AUTH_URL}?${params.toString()}`);
 });
 
-// GET /auth/github/callback — exchange code for token, upsert user in DB
 router.get("/github/callback", async (req, res) => {
   const code = req.query.code as string | undefined;
+  const state = req.query.state as string | undefined;
+
   if (!code) {
     return res.status(400).json({ message: "Missing code parameter" });
   }
+
+  if (!state || state !== req.session.oauthState) {
+    return res.status(403).json({ message: "Invalid OAuth state" });
+  }
+  delete req.session.oauthState;
 
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
@@ -44,7 +60,6 @@ router.get("/github/callback", async (req, res) => {
     process.env.GITHUB_CALLBACK_URL || "http://localhost:5000/auth/github/callback";
 
   try {
-    // Exchange code for access token
     const tokenResponse = await fetch(GITHUB_TOKEN_URL, {
       method: "POST",
       headers: {
@@ -77,7 +92,6 @@ router.get("/github/callback", async (req, res) => {
 
     const accessToken = tokenData.access_token;
 
-    // Fetch user info from GitHub
     const userResponse = await fetch(GITHUB_USER_URL, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -95,18 +109,15 @@ router.get("/github/callback", async (req, res) => {
       avatar_url: string;
     };
 
-    // Upsert user in database
-    const user = upsertUser(
+    const user = await storage.upsertUser(
       String(userData.id),
       userData.login,
       userData.avatar_url,
       accessToken,
     );
 
-    // Store user ID in session
     req.session.userId = user.id;
 
-    // Redirect to frontend with success
     return res.redirect("/?auth=success");
   } catch (error) {
     console.error("GitHub OAuth callback error:", error);
@@ -114,24 +125,23 @@ router.get("/github/callback", async (req, res) => {
   }
 });
 
-// GET /auth/me — return current user info
-router.get("/me", (req, res) => {
+router.get("/me", async (req, res) => {
   if (!req.session.userId) {
     return res.status(401).json({ message: "Not authenticated" });
   }
 
-  const user = findUserById(req.session.userId);
+  const user = await storage.findUserById(req.session.userId);
   if (!user) {
     return res.status(401).json({ message: "Not authenticated" });
   }
 
   return res.json({
+    id: user.id,
     username: user.username,
     avatarUrl: user.avatar_url,
   });
 });
 
-// POST /auth/logout — clear session
 router.post("/logout", (req, res) => {
   req.session.destroy((err) => {
     if (err) {

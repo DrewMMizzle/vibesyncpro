@@ -2,12 +2,16 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowRight, Check } from "lucide-react";
 import { useCreateProject } from "@/hooks/use-projects";
+import { useAuth } from "@/hooks/use-auth";
+import { useLocation } from "wouter";
 
 export default function Home() {
   const [description, setDescription] = useState("");
   const [isSubmitted, setIsSubmitted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const createProject = useCreateProject();
+  const { isLoggedIn, isLoading: authLoading } = useAuth();
+  const [, navigate] = useLocation();
 
   useEffect(() => {
     if (!isSubmitted && inputRef.current) {
@@ -17,14 +21,23 @@ export default function Home() {
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    
+
     if (!description.trim() || createProject.isPending) return;
 
+    if (!isLoggedIn) {
+      window.location.href = "/auth/github";
+      return;
+    }
+
+    const trimmed = description.trim();
     createProject.mutate(
-      { description: description.trim() },
+      { name: trimmed, description: trimmed },
       {
         onSuccess: () => {
           setIsSubmitted(true);
+          setTimeout(() => {
+            navigate("/dashboard");
+          }, 1500);
         },
       }
     );
@@ -79,7 +92,7 @@ export default function Home() {
                   spellCheck="false"
                 />
 
-                <motion.div 
+                <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.4, duration: 0.5 }}
@@ -88,19 +101,19 @@ export default function Home() {
                   <button
                     type="submit"
                     data-testid="button-get-started"
-                    disabled={!isFormValid || createProject.isPending}
+                    disabled={!isFormValid || createProject.isPending || authLoading}
                     className={`
                       group flex items-center gap-3 px-8 py-4 rounded-full text-base font-medium
                       transition-all duration-300 ease-out
-                      ${isFormValid && !createProject.isPending
-                        ? 'bg-foreground text-background shadow-lg cursor-pointer' 
+                      ${isFormValid && !createProject.isPending && !authLoading
+                        ? 'bg-foreground text-background shadow-lg cursor-pointer'
                         : 'bg-muted-foreground/15 text-muted-foreground/40 cursor-not-allowed'}
                     `}
                   >
                     {createProject.isPending ? "Starting..." : "Get Started"}
                     {!createProject.isPending && (
-                      <ArrowRight 
-                        className={`w-5 h-5 transition-transform duration-300 ${isFormValid ? 'group-hover:translate-x-1' : ''}`} 
+                      <ArrowRight
+                        className={`w-5 h-5 transition-transform duration-300 ${isFormValid ? 'group-hover:translate-x-1' : ''}`}
                       />
                     )}
                   </button>

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { insertProjectSchema, projects } from './schema';
+import { insertProjectSchema } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -11,14 +11,27 @@ export const errorSchemas = {
   }),
 };
 
+const projectCreateInput = insertProjectSchema.pick({
+  name: true,
+  description: true,
+});
+
 export const api = {
   projects: {
     create: {
       method: 'POST' as const,
       path: '/api/projects' as const,
-      input: insertProjectSchema,
+      input: projectCreateInput,
       responses: {
-        201: z.custom<typeof projects.$inferSelect>(),
+        201: z.object({
+          id: z.number(),
+          name: z.string(),
+          description: z.string().nullable(),
+          github_repo_url: z.string().nullable(),
+          github_repo_name: z.string().nullable(),
+          created_at: z.string().nullable(),
+          platform_connections: z.array(z.any()),
+        }),
         400: errorSchemas.validation,
       },
     },
