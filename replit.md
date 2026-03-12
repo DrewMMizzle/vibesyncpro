@@ -61,6 +61,16 @@ Preferred communication style: Simple, everyday language.
 2. If not logged in → redirects to `/auth/github` → GitHub OAuth → callback creates/updates user → redirects to `/?auth=success`
 3. If logged in → submits project creation form → navigates to `/dashboard`
 
+### Platform Connections
+
+Each project can have up to 3 platform connections: `replit`, `claude_code`, `computer`.
+
+- Connections are managed via the project detail page (`/projects/:id`)
+- Each connection has a status: `disconnected`, `connected`, `synced`, `drifted`, `conflict`
+- Status can be updated manually from a dropdown on the project detail page
+- Only one connection per platform per project is allowed
+- API endpoints: `POST /api/projects/:id/connections`, `PATCH /api/projects/:id/connections/:connId`, `DELETE /api/projects/:id/connections/:connId`
+
 ---
 
 ## External Dependencies

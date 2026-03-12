@@ -120,7 +120,8 @@ export default function Dashboard() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
                 data-testid={`card-project-${project.id}`}
-                className="border border-border rounded-lg p-5 hover:border-foreground/20 transition-colors"
+                onClick={() => navigate(`/projects/${project.id}`)}
+                className="border border-border rounded-lg p-5 hover:border-foreground/30 hover:shadow-sm transition-all cursor-pointer"
               >
                 <div className="flex items-start justify-between">
                   <div>
@@ -132,9 +133,14 @@ export default function Dashboard() {
                         {project.description}
                       </p>
                     )}
+                    {project.platform_connections.length > 0 && (
+                      <p className="text-xs text-muted-foreground/60 mt-2">
+                        {project.platform_connections.length} platform{project.platform_connections.length !== 1 ? "s" : ""} connected
+                      </p>
+                    )}
                   </div>
                   {project.created_at && (
-                    <span data-testid={`text-project-date-${project.id}`} className="text-xs text-muted-foreground/60">
+                    <span data-testid={`text-project-date-${project.id}`} className="text-xs text-muted-foreground/60 shrink-0 ml-4">
                       {new Date(project.created_at).toLocaleDateString()}
                     </span>
                   )}
