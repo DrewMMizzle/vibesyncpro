@@ -20,6 +20,7 @@ export interface IStorage {
   createConnection(projectId: number, platform: string, branchName: string | null): Promise<PlatformConnection>;
   updateConnection(connectionId: number, fields: { status?: string; branch_name?: string | null; last_synced_at?: Date | null }): Promise<PlatformConnection | undefined>;
   deleteConnection(connectionId: number): Promise<void>;
+  updateProject(projectId: number, fields: { github_repo_url?: string | null; github_repo_name?: string | null; name?: string; description?: string | null }): Promise<Project | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -90,6 +91,15 @@ export class DatabaseStorage implements IStorage {
 
   async deleteConnection(connectionId: number): Promise<void> {
     await db.delete(platformConnections).where(eq(platformConnections.id, connectionId));
+  }
+
+  async updateProject(projectId: number, fields: { github_repo_url?: string | null; github_repo_name?: string | null; name?: string; description?: string | null }): Promise<Project | undefined> {
+    const [project] = await db
+      .update(projects)
+      .set({ ...fields, updated_at: new Date() })
+      .where(eq(projects.id, projectId))
+      .returning();
+    return project;
   }
 }
 

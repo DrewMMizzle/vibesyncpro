@@ -2,7 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { sessionMiddleware, authRouter, usersRouter, projectsRouter } from "./src/index";
+import { sessionMiddleware, authRouter, usersRouter, projectsRouter, githubRouter } from "./src/index";
 
 const app = express();
 const httpServer = createServer(app);
@@ -28,6 +28,7 @@ app.use(sessionMiddleware);
 app.use("/auth", authRouter);
 app.use("/api", usersRouter);
 app.use("/api/projects", projectsRouter);
+app.use("/api/github", githubRouter);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {

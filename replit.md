@@ -22,7 +22,7 @@ Preferred communication style: Simple, everyday language.
 ### Frontend Architecture
 
 - **Framework**: React 18 with TypeScript, bundled by Vite
-- **Routing**: `wouter` — pages: `/` (Home), `/dashboard` (Dashboard), catch-all 404
+- **Routing**: `wouter` — pages: `/` (Home), `/dashboard` (Dashboard), `/projects/:id` (Project Detail), catch-all 404
 - **State / Data Fetching**: TanStack Query (React Query v5) for server state; mutations use `useMutation`
 - **Auth Hook**: `useAuth()` in `client/src/hooks/use-auth.ts` queries `GET /auth/me` for current user state
 - **UI Components**: shadcn/ui (New York style) built on Radix UI primitives
@@ -61,15 +61,19 @@ Preferred communication style: Simple, everyday language.
 2. If not logged in → redirects to `/auth/github` → GitHub OAuth → callback creates/updates user → redirects to `/?auth=success`
 3. If logged in → submits project creation form → navigates to `/dashboard`
 
-### Platform Connections
+### Platform Connections & GitHub Sync
 
 Each project can have up to 3 platform connections: `replit`, `claude_code`, `computer`.
 
 - Connections are managed via the project detail page (`/projects/:id`)
 - Each connection has a status: `disconnected`, `connected`, `synced`, `drifted`, `conflict`
-- Status can be updated manually from a dropdown on the project detail page
+- Status is automatically determined by comparing each platform's branch against the repo's default branch via GitHub's Compare API
 - Only one connection per platform per project is allowed
-- API endpoints: `POST /api/projects/:id/connections`, `PATCH /api/projects/:id/connections/:connId`, `DELETE /api/projects/:id/connections/:connId`
+- A "Refresh Sync" button triggers `POST /api/projects/:id/sync` to re-compare all branches
+- GitHub repo linking: `PATCH /api/projects/:id` saves `github_repo_url` and `github_repo_name`
+- GitHub API proxy: `GET /api/github/repos` (list user repos), `GET /api/github/repos/:owner/:repo/branches` (list branches)
+- Connection CRUD: `POST /api/projects/:id/connections`, `PATCH /api/projects/:id/connections/:connId`, `DELETE /api/projects/:id/connections/:connId`
+- Sync status logic: ahead=0 & behind=0 → synced; both >0 → conflict; otherwise → drifted
 
 ---
 
