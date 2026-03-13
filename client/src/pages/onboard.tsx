@@ -156,11 +156,6 @@ export default function OnboardPage() {
 
     const name = params.get("name");
     if (name) setProjectName(name);
-    const storedName = sessionStorage.getItem("onboard_name");
-    if (storedName) {
-      setProjectName(storedName);
-      sessionStorage.removeItem("onboard_name");
-    }
   }, []);
 
   useEffect(() => {
