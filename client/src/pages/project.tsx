@@ -727,9 +727,9 @@ export default function ProjectPage() {
                                 {branch.behind_by_default > 0 && ` · ${branch.behind_by_default} ${branch.behind_by_default === 1 ? "commit" : "commits"} behind`}
                               </p>
 
-                              {platformLabel && (branch.ahead_by_parent > 0 || branch.behind_by_parent > 0) && (
+                              {branch.likely_platform && (
                                 <p data-testid={`text-discovered-parent-${branch.id}`} className="text-xs text-muted-foreground mt-1 ml-6">
-                                  vs {platformLabel} branch: {branch.ahead_by_parent} ahead, {branch.behind_by_parent} behind
+                                  vs {PLATFORM_LABELS[branch.likely_platform as Platform] ?? branch.likely_platform} branch: {branch.ahead_by_parent} ahead, {branch.behind_by_parent} behind
                                 </p>
                               )}
 
