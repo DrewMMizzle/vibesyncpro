@@ -263,7 +263,7 @@ export default function OnboardPage() {
     try {
       const forked = await forkRepoMutation.mutateAsync(resolvedForkRepo.full_name);
       setSelectedRepo(forked);
-      toast({ title: "Forked!", description: `${resolvedForkRepo.full_name} forked to your account` });
+      toast({ title: "Forked!", description: `Forked ${resolvedForkRepo.full_name} to your account as ${forked.full_name}` });
       goNext();
     } catch (err) {
       toast({ title: "Fork failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
@@ -315,7 +315,7 @@ export default function OnboardPage() {
       }
       const project = await res.json() as { id: number };
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
-      navigate(`/projects/${project.id}`);
+      navigate(`/projects/${project.id}?launched=1`);
     } catch (err) {
       toast({ title: "Failed to create project", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
       setIsLaunching(false);
