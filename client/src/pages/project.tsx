@@ -1064,9 +1064,17 @@ export default function ProjectPage() {
                             <p data-testid={`activity-desc-${entry.id}`} className="text-sm text-foreground">
                               {entry.description}
                             </p>
-                            <p data-testid={`activity-time-${entry.id}`} className="text-[10px] text-muted-foreground/60 mt-0.5">
-                              {timeAgo(entry.created_at)}
-                            </p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <p data-testid={`activity-time-${entry.id}`} className="text-[10px] text-muted-foreground/60">
+                                {timeAgo(entry.created_at)}
+                              </p>
+                              {entry.metadata && typeof entry.metadata === "object" && (entry.metadata as Record<string, unknown>).branch && (
+                                <span className="text-[10px] text-muted-foreground/50 flex items-center gap-0.5">
+                                  <GitBranch className="w-2.5 h-2.5" />
+                                  {String((entry.metadata as Record<string, unknown>).branch)}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       );
