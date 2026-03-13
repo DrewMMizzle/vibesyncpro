@@ -116,7 +116,7 @@ export default function ProjectPage() {
   const repoName = project?.github_repo_name;
   const [owner, repo] = repoName ? repoName.split("/") : [null, null];
 
-  const { data: branches, isLoading: branchesLoading } = useQuery<GitHubBranch[]>({
+  const { data: branches, isLoading: branchesLoading, isError: branchesError } = useQuery<GitHubBranch[]>({
     queryKey: ["/api/github/repos", owner, repo, "branches"],
     queryFn: getQueryFn({ on401: "throw" }),
     enabled: showAddModal && !!owner && !!repo && isLoggedIn,
@@ -539,7 +539,11 @@ export default function ProjectPage() {
                     <label className="text-sm text-muted-foreground mb-1.5 block">
                       Branch {!project.github_repo_name && <span className="text-muted-foreground/50">(link a repo first for branch picker)</span>}
                     </label>
-                    {project.github_repo_name && branches && !branchesLoading ? (
+                    {project.github_repo_name && branchesLoading ? (
+                      <p className="text-sm text-muted-foreground py-2">Loading branches...</p>
+                    ) : project.github_repo_name && branchesError ? (
+                      <p className="text-sm text-red-500 py-2">Failed to load branches. Check your repo access.</p>
+                    ) : project.github_repo_name && branches ? (
                       <select
                         data-testid="select-branch"
                         value={addBranch}
@@ -553,8 +557,6 @@ export default function ProjectPage() {
                           </option>
                         ))}
                       </select>
-                    ) : branchesLoading ? (
-                      <p className="text-sm text-muted-foreground py-2">Loading branches...</p>
                     ) : (
                       <input
                         data-testid="input-branch-name"

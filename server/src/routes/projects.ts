@@ -163,8 +163,7 @@ router.post("/:id/sync", requireAuth, async (req, res) => {
       });
     } catch (err: any) {
       console.error(`Sync error for connection ${conn.id}:`, err.message);
-      await storage.updateConnection(conn.id, { status: "disconnected", last_synced_at: new Date() });
-      results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: "disconnected", last_synced_at: new Date().toISOString() });
+      results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: conn.status, last_synced_at: conn.last_synced_at?.toISOString() ?? null });
     }
   }
 
