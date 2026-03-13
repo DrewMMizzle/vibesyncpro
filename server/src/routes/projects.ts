@@ -172,7 +172,14 @@ router.post("/:id/sync", requireAuth, async (req, res) => {
     }
   }
 
-  return res.json({ synced: errors.length === 0, errors, connections: results, default_branch: defaultBranch });
+  let discoveredBranchesList: ReturnType<typeof formatDiscoveredBranch>[] = [];
+  try {
+    discoveredBranchesList = await runBranchScan(projectId, token, owner, repo, defaultBranch);
+  } catch (err) {
+    console.error(`Auto-scan after sync failed for project ${projectId}:`, err instanceof Error ? err.message : "Unknown error");
+  }
+
+  return res.json({ synced: errors.length === 0, errors, connections: results, default_branch: defaultBranch, discovered_branches: discoveredBranchesList });
 });
 
 // POST /api/projects/:id/connections
@@ -397,7 +404,10 @@ function formatDiscoveredBranch(b: DiscoveredBranch) {
     likely_platform: b.likely_platform,
     ahead_by_default: b.ahead_by_default ?? 0,
     behind_by_default: b.behind_by_default ?? 0,
+    ahead_by_parent: b.ahead_by_parent ?? 0,
+    behind_by_parent: b.behind_by_parent ?? 0,
     last_commit_sha: b.last_commit_sha,
+    last_commit_at: b.last_commit_at,
     dismissed_at: b.dismissed_at,
     last_seen_at: b.last_seen_at,
   };
@@ -405,7 +415,11 @@ function formatDiscoveredBranch(b: DiscoveredBranch) {
 
 interface GitHubBranchInfo {
   name: string;
-  commit: { sha: string };
+  commit: { sha: string; url: string };
+}
+
+interface GitHubCommitDetail {
+  commit: { committer: { date: string } | null; author: { date: string } | null };
 }
 
 async function runBranchScan(projectId: number, token: string, owner: string, repo: string, defaultBranch: string) {
@@ -453,27 +467,48 @@ async function runBranchScan(projectId: number, token: string, owner: string, re
     }
 
     let likelyPlatform: string | null = null;
+    let aheadByParent = 0;
+    let behindByParent = 0;
     const platformBranches = connections.filter((c) => c.branch_name && c.branch_name !== defaultBranch);
+    let bestDistance = Infinity;
     for (const conn of platformBranches) {
       try {
         const cmp = await githubFetch(
           token,
           `/repos/${owner}/${repo}/compare/${encodeURIComponent(conn.branch_name!)}...${encodeURIComponent(branch.name)}`
         ) as { ahead_by: number; behind_by: number };
-        if (cmp.behind_by === 0 && cmp.ahead_by > 0) {
+        const distance = cmp.ahead_by + cmp.behind_by;
+        if (distance < bestDistance) {
+          bestDistance = distance;
           likelyPlatform = conn.platform;
-          break;
+          aheadByParent = cmp.ahead_by;
+          behindByParent = cmp.behind_by;
         }
       } catch {
         // skip comparison errors
       }
     }
 
-    const updateFields: { likely_platform: string | null; ahead_by_default: number; behind_by_default: number; last_commit_sha: string; last_seen_at: Date; dismissed_at?: null } = {
+    let lastCommitAt: Date | null = null;
+    try {
+      const commitDetail = await githubFetch(
+        token,
+        `/repos/${owner}/${repo}/commits/${branch.commit.sha}`
+      ) as GitHubCommitDetail;
+      const dateStr = commitDetail.commit?.committer?.date ?? commitDetail.commit?.author?.date;
+      if (dateStr) lastCommitAt = new Date(dateStr);
+    } catch {
+      // skip commit detail errors
+    }
+
+    const updateFields: { likely_platform: string | null; ahead_by_default: number; behind_by_default: number; ahead_by_parent: number; behind_by_parent: number; last_commit_sha: string; last_commit_at: Date | null; last_seen_at: Date; dismissed_at?: null } = {
       likely_platform: likelyPlatform,
       ahead_by_default: aheadByDefault,
       behind_by_default: behindByDefault,
+      ahead_by_parent: aheadByParent,
+      behind_by_parent: behindByParent,
       last_commit_sha: branch.commit.sha,
+      last_commit_at: lastCommitAt,
       last_seen_at: new Date(),
     };
 
