@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -55,6 +55,15 @@ export const discoveredBranches = pgTable("discovered_branches", {
   uniqueIndex("discovered_branches_project_branch_idx").on(table.project_id, table.branch_name),
 ]);
 
+export const activityLog = pgTable("activity_log", {
+  id: serial("id").primaryKey(),
+  project_id: integer("project_id").notNull().references(() => projects.id),
+  event_type: text("event_type").notNull(),
+  description: text("description").notNull(),
+  metadata: jsonb("metadata"),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   created_at: true,
@@ -87,3 +96,4 @@ export type InsertPlatformConnection = z.infer<typeof insertPlatformConnectionSc
 export type PlatformConnection = typeof platformConnections.$inferSelect;
 export type InsertDiscoveredBranch = z.infer<typeof insertDiscoveredBranchSchema>;
 export type DiscoveredBranch = typeof discoveredBranches.$inferSelect;
+export type ActivityLogEntry = typeof activityLog.$inferSelect;

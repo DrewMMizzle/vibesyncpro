@@ -53,7 +53,7 @@ Preferred communication style: Simple, everyday language.
 
 - **Database**: PostgreSQL (single database, all tables)
 - **ORM**: Drizzle ORM with `drizzle-kit` for schema push
-- **Tables**: `users` (GitHub OAuth), `projects` (user_id, name, description, GitHub fields), `platform_connections` (project_id, platform, status)
+- **Tables**: `users` (GitHub OAuth), `projects` (user_id, name, description, GitHub fields), `platform_connections` (project_id, platform, status), `discovered_branches` (project_id, branch scan data), `activity_log` (project_id, event audit trail)
 - **Connection**: Uses `pg` (node-postgres) Pool, connection string from `DATABASE_URL` environment variable
 - **Schema sync**: Run via `npm run db:push`
 
@@ -96,6 +96,25 @@ AI agents (especially Claude Code) may create branches the user didn't register.
 - **GET endpoint**: `GET /api/projects/:id/branches/discovered` returns non-dismissed discovered branches
 - **Frontend**: "Discovered Branches" collapsible section on project page with count badge, scan button, per-branch cards showing attribution/commit info, and contextual action buttons
 - **Query key**: `["/api/projects", projectId, "branches", "discovered"]`
+
+### Activity Log
+
+Per-project timestamped audit trail of sync checks, merges, conflict resolutions, and triage actions.
+
+- **Database**: `activity_log` table (project_id, event_type, description, metadata JSONB, created_at)
+- **Storage methods**: `addActivityLog(projectId, eventType, description, metadata?)` and `getActivityLog(projectId, limit?)` (newest first, default 50)
+- **GET endpoint**: `GET /api/projects/:id/activity` returns last 50 entries
+- **Events logged at**: project creation, sync results (per connection — synced/drifted/conflict/error), connection resolve (success/conflict), branch triage (merge/dismiss/assign/conflict)
+- **Event types**: `project_created`, `sync_synced`, `sync_drifted`, `sync_conflict`, `sync_error`, `resolve_success`, `resolve_conflict`, `branch_merged`, `branch_dismissed`, `branch_assigned`, `branch_conflict`
+- **Frontend**: Collapsible "Activity" section on project detail page with count badge, color-coded icons by event type, and relative timestamps
+- **Query key**: `["/api/projects", projectId, "activity"]` — invalidated on sync, resolve, and triage mutations (including error paths for conflict events)
+- **Cascade**: Activity log entries are deleted when a project is deleted (within the same transaction)
+
+### Project Settings & Deletion
+
+- **Inline editing**: Project name and description are click-to-edit on the project detail page (save on Enter, blur, or checkmark; cancel on Escape)
+- **Delete**: "Danger Zone" section at bottom of project page with confirmation modal; hard-deletes project + all connections + discovered branches + activity log in a single transaction
+- **Backend**: `PATCH /api/projects/:id` accepts `name` and `description` (with server-side trimming); `DELETE /api/projects/:id` cascades via `storage.deleteProject()`
 
 ---
 

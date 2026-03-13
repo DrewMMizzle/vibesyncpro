@@ -1,14 +1,16 @@
 import { db } from "./db";
-import { eq, and, notInArray } from "drizzle-orm";
+import { eq, and, notInArray, desc } from "drizzle-orm";
 import {
   users,
   projects,
   platformConnections,
   discoveredBranches,
+  activityLog,
   type Project,
   type User,
   type PlatformConnection,
   type DiscoveredBranch,
+  type ActivityLogEntry,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -30,6 +32,8 @@ export interface IStorage {
   deleteDiscoveredBranch(id: number): Promise<void>;
   deleteStaleDiscoveredBranches(projectId: number, activeBranchNames: string[]): Promise<void>;
   deleteProject(projectId: number): Promise<void>;
+  addActivityLog(projectId: number, eventType: string, description: string, metadata?: Record<string, unknown>): Promise<ActivityLogEntry>;
+  getActivityLog(projectId: number, limit?: number): Promise<ActivityLogEntry[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -156,10 +160,25 @@ export class DatabaseStorage implements IStorage {
 
   async deleteProject(projectId: number): Promise<void> {
     await db.transaction(async (tx) => {
+      await tx.delete(activityLog).where(eq(activityLog.project_id, projectId));
       await tx.delete(discoveredBranches).where(eq(discoveredBranches.project_id, projectId));
       await tx.delete(platformConnections).where(eq(platformConnections.project_id, projectId));
       await tx.delete(projects).where(eq(projects.id, projectId));
     });
+  }
+
+  async addActivityLog(projectId: number, eventType: string, description: string, metadata?: Record<string, unknown>): Promise<ActivityLogEntry> {
+    const [entry] = await db.insert(activityLog)
+      .values({ project_id: projectId, event_type: eventType, description, metadata: metadata ?? null })
+      .returning();
+    return entry;
+  }
+
+  async getActivityLog(projectId: number, limit = 50): Promise<ActivityLogEntry[]> {
+    return db.select().from(activityLog)
+      .where(eq(activityLog.project_id, projectId))
+      .orderBy(desc(activityLog.created_at))
+      .limit(limit);
   }
 }
 

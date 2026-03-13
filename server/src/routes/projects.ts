@@ -9,6 +9,12 @@ const router = Router();
 
 const VALID_PLATFORMS = ["replit", "claude_code", "computer"] as const;
 
+const PLATFORM_LABELS: Record<string, string> = {
+  replit: "Replit",
+  claude_code: "Claude Code",
+  computer: "Computer",
+};
+
 function formatProject(project: Project, connections: PlatformConnection[]) {
   return {
     id: project.id,
@@ -119,6 +125,11 @@ router.post("/", requireAuth, async (req, res) => {
     }
   }
 
+  await storage.addActivityLog(project.id, "project_created", `Project "${name}" was created`, {
+    connections: connInputs?.map((c) => c.platform) ?? [],
+    has_repo: !!github_repo_name,
+  });
+
   const finalConns = await storage.getConnectionsByProject(project.id);
   const finalProject = await storage.getProjectById(project.id);
   return res.status(201).json(formatProject(finalProject!, finalConns));
@@ -182,6 +193,19 @@ router.delete("/:id", requireAuth, async (req, res) => {
 
   await storage.deleteProject(projectId);
   return res.json({ deleted: true });
+});
+
+// GET /api/projects/:id/activity — get activity log
+router.get("/:id/activity", requireAuth, async (req, res) => {
+  const projectId = parseInt(req.params.id as string, 10);
+  if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+
+  const project = await storage.getProjectById(projectId);
+  if (!project) return res.status(404).json({ message: "Project not found" });
+  if (project.user_id !== req.session.userId) return res.status(403).json({ message: "Forbidden" });
+
+  const entries = await storage.getActivityLog(projectId, 50);
+  return res.json({ activity: entries });
 });
 
 // POST /api/projects/:id/sync — compare branches via GitHub API and update statuses
@@ -264,6 +288,24 @@ router.post("/:id/sync", requireAuth, async (req, res) => {
       errors.push({ id: conn.id, platform: conn.platform, error: errorMessage });
       results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: conn.status, last_synced_at: conn.last_synced_at?.toISOString() ?? null });
     }
+  }
+
+  const errorIds = new Set(errors.map((e) => e.id));
+  for (const r of results) {
+    if (errorIds.has(r.id)) continue;
+    const platformLabel = PLATFORM_LABELS[r.platform] ?? r.platform;
+    if (r.status === "synced") {
+      await storage.addActivityLog(projectId, "sync_synced", `${platformLabel} branch is up to date`, { platform: r.platform, branch: r.branch_name });
+    } else if (r.status === "drifted") {
+      const detail = (r.ahead_by ?? 0) > 0 ? `${r.ahead_by} ahead` : `${r.behind_by} behind`;
+      await storage.addActivityLog(projectId, "sync_drifted", `${platformLabel} branch has drifted (${detail})`, { platform: r.platform, branch: r.branch_name, ahead_by: r.ahead_by, behind_by: r.behind_by });
+    } else if (r.status === "conflict") {
+      await storage.addActivityLog(projectId, "sync_conflict", `${platformLabel} branch has conflicts`, { platform: r.platform, branch: r.branch_name, ahead_by: r.ahead_by, behind_by: r.behind_by });
+    }
+  }
+  for (const e of errors) {
+    const platformLabel = PLATFORM_LABELS[e.platform] ?? e.platform;
+    await storage.addActivityLog(projectId, "sync_error", `Sync failed for ${platformLabel}`, { platform: e.platform, error: e.error });
   }
 
   let discoveredBranchesList: ReturnType<typeof formatDiscoveredBranch>[] = [];
@@ -451,6 +493,12 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
       last_synced_at: new Date(),
     });
 
+    const platformLabel = PLATFORM_LABELS[conn.platform] ?? conn.platform;
+    const actionDesc = action === "merge_to_default"
+      ? `${platformLabel} branch merged to ${defaultBranch}`
+      : `${platformLabel} branch updated from ${defaultBranch}`;
+    await storage.addActivityLog(projectId, "resolve_success", actionDesc, { platform: conn.platform, branch: branchName, action });
+
     return res.json({
       id: conn.id,
       status: newStatus,
@@ -463,6 +511,8 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
       const base = action === "merge_to_default" ? defaultBranch : branchName;
       const head = action === "merge_to_default" ? branchName : defaultBranch;
       const conflictUrl = `https://github.com/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`;
+      const platformLabel = PLATFORM_LABELS[conn.platform] ?? conn.platform;
+      await storage.addActivityLog(projectId, "resolve_conflict", `Conflict detected merging ${platformLabel} branch`, { platform: conn.platform, branch: branchName, action });
       return res.status(409).json({
         message: "These branches edited the same files differently. You'll need to resolve the conflicts on GitHub.",
         conflict_url: conflictUrl,
@@ -702,6 +752,7 @@ router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) =>
     if (discoveredBranch) {
       await storage.dismissDiscoveredBranch(discoveredBranch.id, discoveredBranch.last_commit_sha);
     }
+    await storage.addActivityLog(projectId, "branch_dismissed", `Branch "${branchName}" was dismissed`, { branch: branchName });
     return res.json({ message: "Branch dismissed" });
   }
 
@@ -720,6 +771,7 @@ router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) =>
     }
     await storage.updateConnection(replitConn.id, { branch_name: branchName, status: "drifted", last_synced_at: new Date() });
     if (discoveredBranch) await storage.deleteDiscoveredBranch(discoveredBranch.id);
+    await storage.addActivityLog(projectId, "branch_assigned", `Branch "${branchName}" assigned to Replit`, { branch: branchName, platform: "replit" });
     return res.json({ message: `Replit connection switched to branch ${branchName}` });
   }
 
@@ -761,12 +813,15 @@ router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) =>
     }
 
     if (discoveredBranch) await storage.deleteDiscoveredBranch(discoveredBranch.id);
+    const target = action === "merge_to_default" ? defaultBranch : (platform_branch ?? "platform branch");
+    await storage.addActivityLog(projectId, "branch_merged", `Branch "${branchName}" merged to ${target}`, { branch: branchName, action, target });
     return res.json({ message: "Branch merged successfully" });
   } catch (err) {
     const statusCode = (err as { statusCode?: number }).statusCode;
     if (statusCode === 409) {
       const base = action === "merge_to_default" ? defaultBranch : (platform_branch ?? defaultBranch);
       const conflictUrl = `https://github.com/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(branchName)}`;
+      await storage.addActivityLog(projectId, "branch_conflict", `Conflict detected merging branch "${branchName}"`, { branch: branchName, action });
       return res.status(409).json({
         message: "These branches edited the same files differently. You'll need to resolve the conflicts on GitHub.",
         conflict_url: conflictUrl,

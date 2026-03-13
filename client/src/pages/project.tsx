@@ -8,6 +8,7 @@ import {
   ArrowLeft, Plus, Trash2, Monitor, Bot, Globe, RefreshCw, GitBranch,
   Search, Lock, Unlock, ExternalLink, GitMerge, ArrowDownToLine, Zap, AlertTriangle,
   Eye, EyeOff, Send, FolderGit2, ChevronDown, ChevronRight, Pencil, Check, X, Settings,
+  Activity, CircleCheck, CircleAlert, CircleDot, CircleX, Rocket, GitFork,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -47,6 +48,14 @@ interface DiscoveredBranchItem {
   last_commit_at: string | null;
   dismissed_at: string | null;
   last_seen_at: string | null;
+}
+
+interface ActivityEntry {
+  id: number;
+  event_type: string;
+  description: string;
+  metadata: Record<string, unknown> | null;
+  created_at: string | null;
 }
 
 interface GitHubRepo {
@@ -103,6 +112,40 @@ function timeAgo(dateStr: string | null): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+function getActivityIcon(eventType: string) {
+  switch (eventType) {
+    case "project_created": return <Rocket className="w-4 h-4" />;
+    case "sync_synced": return <CircleCheck className="w-4 h-4" />;
+    case "sync_drifted": return <CircleAlert className="w-4 h-4" />;
+    case "sync_conflict": return <CircleX className="w-4 h-4" />;
+    case "sync_error": return <AlertTriangle className="w-4 h-4" />;
+    case "resolve_success": return <GitMerge className="w-4 h-4" />;
+    case "resolve_conflict": return <CircleX className="w-4 h-4" />;
+    case "branch_merged": return <GitMerge className="w-4 h-4" />;
+    case "branch_dismissed": return <EyeOff className="w-4 h-4" />;
+    case "branch_assigned": return <Send className="w-4 h-4" />;
+    case "branch_conflict": return <CircleX className="w-4 h-4" />;
+    default: return <CircleDot className="w-4 h-4" />;
+  }
+}
+
+function getActivityColor(eventType: string): string {
+  switch (eventType) {
+    case "project_created": return "text-blue-500";
+    case "sync_synced": return "text-green-500";
+    case "sync_drifted": return "text-yellow-500";
+    case "sync_conflict": return "text-red-500";
+    case "sync_error": return "text-red-500";
+    case "resolve_success": return "text-green-500";
+    case "resolve_conflict": return "text-red-500";
+    case "branch_merged": return "text-green-500";
+    case "branch_dismissed": return "text-muted-foreground";
+    case "branch_assigned": return "text-blue-500";
+    case "branch_conflict": return "text-red-500";
+    default: return "text-muted-foreground";
+  }
 }
 
 export default function ProjectPage() {
@@ -222,6 +265,7 @@ export default function ProjectPage() {
     onSuccess: (data: { synced: boolean; errors?: Array<{ platform: string; error: string }> }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "branches", "discovered"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "activity"] });
       if (data.synced) {
         toast({ title: "Sync complete", description: "All branch statuses updated" });
       } else {
@@ -288,11 +332,13 @@ export default function ProjectPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "activity"] });
       syncStatus.mutate();
       toast({ title: "Resolved", description: "Branches merged successfully" });
       setConflictInfo(null);
     },
     onError: (err: Error & { conflict_url?: string }, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "activity"] });
       if (err.conflict_url) {
         setConflictInfo({ connId: variables.connId, url: err.conflict_url });
         toast({
@@ -307,6 +353,7 @@ export default function ProjectPage() {
   });
 
   const [showDiscovered, setShowDiscovered] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
   const [hasAutoExpanded, setHasAutoExpanded] = useState(false);
   const [triageConflictInfo, setTriageConflictInfo] = useState<{ branchName: string; url: string } | null>(null);
 
@@ -317,6 +364,14 @@ export default function ProjectPage() {
   });
 
   const discoveredBranches = discoveredData?.discovered_branches ?? [];
+
+  const { data: activityData } = useQuery<{ activity: ActivityEntry[] }>({
+    queryKey: ["/api/projects", projectId, "activity"],
+    queryFn: getQueryFn({ on401: "throw" }),
+    enabled: !!projectId && isLoggedIn,
+  });
+
+  const activityEntries = activityData?.activity ?? [];
 
   useEffect(() => {
     if (discoveredBranches.length > 0 && !hasAutoExpanded) {
@@ -361,11 +416,13 @@ export default function ProjectPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "branches", "discovered"] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "activity"] });
       toast({ title: "Done", description: "Action completed successfully" });
       setTriageConflictInfo(null);
       scanBranches.mutate();
     },
     onError: (err: Error & { conflict_url?: string }, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "activity"] });
       if (err.conflict_url) {
         setTriageConflictInfo({ branchName: variables.branchName, url: err.conflict_url });
         toast({
@@ -957,6 +1014,70 @@ export default function ProjectPage() {
             </AnimatePresence>
           </div>
         )}
+        {/* Activity Log */}
+        <div className="mt-10">
+          <button
+            data-testid="button-toggle-activity"
+            onClick={() => setShowActivity(!showActivity)}
+            className="flex items-center gap-2 text-sm font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors mb-4"
+          >
+            {showActivity ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            <Activity className="w-4 h-4" />
+            Activity
+            {activityEntries.length > 0 && (
+              <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground">
+                {activityEntries.length}
+              </span>
+            )}
+          </button>
+
+          <AnimatePresence>
+            {showActivity && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                {activityEntries.length === 0 ? (
+                  <div className="text-center py-8 border border-dashed border-border rounded-lg">
+                    <Activity className="w-6 h-6 mx-auto text-muted-foreground/40 mb-2" />
+                    <p data-testid="text-no-activity" className="text-muted-foreground text-sm">
+                      No activity yet. Events will appear here as you sync, merge, and manage branches.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="border border-border rounded-lg divide-y divide-border">
+                    {activityEntries.map((entry) => {
+                      const icon = getActivityIcon(entry.event_type);
+                      const color = getActivityColor(entry.event_type);
+                      return (
+                        <div
+                          key={entry.id}
+                          data-testid={`activity-entry-${entry.id}`}
+                          className="px-4 py-3 flex items-start gap-3"
+                        >
+                          <span className={`mt-0.5 flex-shrink-0 ${color}`}>
+                            {icon}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p data-testid={`activity-desc-${entry.id}`} className="text-sm text-foreground">
+                              {entry.description}
+                            </p>
+                            <p data-testid={`activity-time-${entry.id}`} className="text-[10px] text-muted-foreground/60 mt-0.5">
+                              {timeAgo(entry.created_at)}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
         {/* Danger Zone */}
         <div className="mt-16 pt-8 border-t border-red-200 dark:border-red-900">
           <h2 className="text-sm font-medium text-red-600 dark:text-red-400 uppercase tracking-wider mb-4">
