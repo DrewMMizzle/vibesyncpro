@@ -367,12 +367,12 @@ export default function ProjectPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "activity"] });
       syncStatus.mutate();
       const conn = project?.platform_connections.find((c) => c.id === variables.connId);
-      const branchLabel = conn?.branch_name ? `\`${conn.branch_name}\`` : "branch";
-      const defaultLabel = defaultBranch ? `\`${defaultBranch}\`` : "default branch";
-      const desc = variables.action === "merge_to_default"
-        ? `Merged ${branchLabel} into ${defaultLabel} successfully`
-        : `${branchLabel} updated from ${defaultLabel} successfully`;
-      toast({ title: "Resolved", description: desc });
+      const branchLabel = conn?.branch_name ?? "branch";
+      const defaultLabel = defaultBranch ?? "default branch";
+      const title = variables.action === "merge_to_default"
+        ? `Merged ${branchLabel} into ${defaultLabel}`
+        : `${branchLabel} updated from ${defaultLabel}`;
+      toast({ title });
       setConflictInfo(null);
     },
     onError: (err: Error & { conflict_url?: string }, variables) => {
@@ -461,25 +461,26 @@ export default function ProjectPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "branches", "discovered"] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "activity"] });
-      const defaultLabel = defaultBranch ? `\`${defaultBranch}\`` : "default branch";
-      let desc: string;
+      const defaultLabel = defaultBranch ?? "default branch";
+      let title: string;
       switch (variables.action) {
         case "merge_to_default":
-          desc = `Merged \`${variables.branchName}\` into ${defaultLabel}`;
+          title = `Merged ${variables.branchName} into ${defaultLabel}`;
           break;
         case "merge_to_platform":
-          desc = `Merged \`${variables.branchName}\` into \`${variables.platform_branch ?? "platform branch"}\``;
+          title = `Merged ${variables.branchName} into ${variables.platform_branch ?? "platform branch"}`;
           break;
         case "assign_to_replit":
-          desc = `Assigned \`${variables.branchName}\` to Replit Agent`;
+          title = `Assigned ${variables.branchName} to Replit Agent`;
           break;
         case "dismiss":
-          desc = `Dismissed \`${variables.branchName}\` — it will resurface if new commits appear`;
+          title = `Dismissed ${variables.branchName}`;
           break;
         default:
-          desc = "Action completed successfully";
+          title = "Action completed";
       }
-      toast({ title: "Done", description: desc });
+      const description = variables.action === "dismiss" ? "It will resurface if new commits appear" : undefined;
+      toast({ title, description });
       setTriageConflictInfo(null);
       scanBranches.mutate();
     },
