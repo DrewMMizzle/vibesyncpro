@@ -689,7 +689,7 @@ export default function ProjectPage() {
                     discoveredBranches.map((branch) => {
                       const platformLabel = branch.likely_platform
                         ? PLATFORM_LABELS[branch.likely_platform as Platform] ?? branch.likely_platform
-                        : null;
+                        : "unknown";
                       const hasReplit = project.platform_connections.some((c) => c.platform === "replit");
                       const likelyConn = branch.likely_platform
                         ? project.platform_connections.find((c) => c.platform === branch.likely_platform)
@@ -714,11 +714,11 @@ export default function ProjectPage() {
                                 </span>
                               </div>
 
-                              {platformLabel && (
-                                <p data-testid={`text-discovered-platform-${branch.id}`} className="text-xs text-muted-foreground mt-1 ml-6">
-                                  Looks like it came from your {platformLabel} agent
-                                </p>
-                              )}
+                              <p data-testid={`text-discovered-platform-${branch.id}`} className="text-xs text-muted-foreground mt-1 ml-6">
+                                {branch.likely_platform
+                                  ? `Looks like it came from your ${PLATFORM_LABELS[branch.likely_platform as Platform] ?? branch.likely_platform} agent`
+                                  : "Origin unknown — not clearly linked to any connected agent"}
+                              </p>
 
                               <p data-testid={`text-discovered-commits-${branch.id}`} className="text-sm text-muted-foreground mt-2 ml-6">
                                 {branch.ahead_by_default > 0
@@ -742,17 +742,15 @@ export default function ProjectPage() {
                           </div>
 
                           <div className="flex items-center gap-2 mt-4 ml-6 flex-wrap">
-                            {branch.ahead_by_default > 0 && (
-                              <button
-                                data-testid={`button-triage-merge-default-${branch.id}`}
-                                onClick={() => triageBranch.mutate({ branchName: branch.branch_name, action: "merge_to_default" })}
-                                disabled={isTriaging}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
-                              >
-                                <GitMerge className="w-3 h-3" />
-                                {isTriaging ? "..." : "Merge to main"}
-                              </button>
-                            )}
+                            <button
+                              data-testid={`button-triage-merge-default-${branch.id}`}
+                              onClick={() => triageBranch.mutate({ branchName: branch.branch_name, action: "merge_to_default" })}
+                              disabled={isTriaging}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
+                            >
+                              <GitMerge className="w-3 h-3" />
+                              {isTriaging ? "..." : "Merge to main"}
+                            </button>
 
                             {hasReplit && (
                               <button
