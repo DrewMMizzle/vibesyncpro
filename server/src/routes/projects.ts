@@ -651,6 +651,11 @@ router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) =>
       if (!platform_branch) {
         return res.status(400).json({ message: "platform_branch is required for merge_to_platform" });
       }
+      const projectConnections = await storage.getConnectionsByProject(projectId);
+      const validBranch = projectConnections.some((c) => c.branch_name === platform_branch);
+      if (!validBranch) {
+        return res.status(400).json({ message: "platform_branch must match a registered connection branch" });
+      }
       await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
         method: "POST",
         body: {
