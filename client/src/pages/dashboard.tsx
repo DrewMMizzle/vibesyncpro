@@ -255,7 +255,7 @@ export default function Dashboard() {
                       {latestSync && (
                         <span data-testid={`text-last-synced-${project.id}`} className="flex items-center gap-1 text-xs text-muted-foreground/50">
                           <Clock className="w-3 h-3" />
-                          {timeAgo(latestSync)}
+                          Synced {timeAgo(latestSync)}
                         </span>
                       )}
                     </div>
