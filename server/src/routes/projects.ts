@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/requireAuth";
 import { storage } from "../../storage";
 import { githubFetch, getAccessToken } from "./github";
-import type { Project, PlatformConnection } from "@shared/schema";
+import type { Project, PlatformConnection, DiscoveredBranch } from "@shared/schema";
 
 const router = Router();
 
@@ -388,6 +388,261 @@ router.delete("/:id/connections/:connId", requireAuth, async (req, res) => {
 
   await storage.deleteConnection(connId);
   return res.json({ message: "Connection removed" });
+});
+
+function formatDiscoveredBranch(b: DiscoveredBranch) {
+  return {
+    id: b.id,
+    branch_name: b.branch_name,
+    likely_platform: b.likely_platform,
+    ahead_by_default: b.ahead_by_default ?? 0,
+    behind_by_default: b.behind_by_default ?? 0,
+    last_commit_sha: b.last_commit_sha,
+    dismissed_at: b.dismissed_at,
+    last_seen_at: b.last_seen_at,
+  };
+}
+
+interface GitHubBranchInfo {
+  name: string;
+  commit: { sha: string };
+}
+
+async function runBranchScan(projectId: number, token: string, owner: string, repo: string, defaultBranch: string) {
+  const connections = await storage.getConnectionsByProject(projectId);
+  const registeredBranches = new Set<string>();
+  registeredBranches.add(defaultBranch);
+  for (const conn of connections) {
+    if (conn.branch_name) registeredBranches.add(conn.branch_name);
+  }
+
+  const allBranches: GitHubBranchInfo[] = [];
+  let page = 1;
+  while (true) {
+    const batch = await githubFetch(
+      token,
+      `/repos/${owner}/${repo}/branches?per_page=100&page=${page}`
+    ) as GitHubBranchInfo[];
+    allBranches.push(...batch);
+    if (batch.length < 100) break;
+    page++;
+  }
+
+  const unregistered = allBranches.filter((b) => !registeredBranches.has(b.name));
+  const discoveredNames: string[] = [];
+
+  for (const branch of unregistered) {
+    discoveredNames.push(branch.name);
+
+    const existing = await storage.getDiscoveredBranchByName(projectId, branch.name);
+    if (existing?.dismissed_at && existing.last_commit_sha === branch.commit.sha) {
+      continue;
+    }
+
+    let aheadByDefault = 0;
+    let behindByDefault = 0;
+    try {
+      const comparison = await githubFetch(
+        token,
+        `/repos/${owner}/${repo}/compare/${encodeURIComponent(defaultBranch)}...${encodeURIComponent(branch.name)}`
+      ) as { ahead_by: number; behind_by: number };
+      aheadByDefault = comparison.ahead_by;
+      behindByDefault = comparison.behind_by;
+    } catch {
+      // skip comparison errors
+    }
+
+    let likelyPlatform: string | null = null;
+    const platformBranches = connections.filter((c) => c.branch_name && c.branch_name !== defaultBranch);
+    for (const conn of platformBranches) {
+      try {
+        const cmp = await githubFetch(
+          token,
+          `/repos/${owner}/${repo}/compare/${encodeURIComponent(conn.branch_name!)}...${encodeURIComponent(branch.name)}`
+        ) as { ahead_by: number; behind_by: number };
+        if (cmp.behind_by === 0 && cmp.ahead_by > 0) {
+          likelyPlatform = conn.platform;
+          break;
+        }
+      } catch {
+        // skip comparison errors
+      }
+    }
+
+    const updateFields: { likely_platform: string | null; ahead_by_default: number; behind_by_default: number; last_commit_sha: string; last_seen_at: Date; dismissed_at?: null } = {
+      likely_platform: likelyPlatform,
+      ahead_by_default: aheadByDefault,
+      behind_by_default: behindByDefault,
+      last_commit_sha: branch.commit.sha,
+      last_seen_at: new Date(),
+    };
+
+    if (existing?.dismissed_at && existing.last_commit_sha !== branch.commit.sha) {
+      updateFields.dismissed_at = null;
+    }
+
+    await storage.upsertDiscoveredBranch(projectId, branch.name, updateFields);
+  }
+
+  await storage.deleteStaleDiscoveredBranches(projectId, discoveredNames);
+
+  const allDiscovered = await storage.getDiscoveredBranches(projectId);
+  return allDiscovered.filter((b) => !b.dismissed_at).map(formatDiscoveredBranch);
+}
+
+// POST /api/projects/:id/branches/scan — discover unregistered branches
+router.post("/:id/branches/scan", requireAuth, async (req, res) => {
+  const projectId = parseInt(req.params.id as string, 10);
+  if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+
+  const project = await storage.getProjectById(projectId);
+  if (!project) return res.status(404).json({ message: "Project not found" });
+  if (project.user_id !== req.session.userId) return res.status(403).json({ message: "Forbidden" });
+
+  if (!project.github_repo_name || !project.github_repo_name.includes("/")) {
+    return res.status(400).json({ message: "No GitHub repo linked to this project" });
+  }
+
+  let token: string;
+  try {
+    token = await getAccessToken(req.session.userId!);
+  } catch {
+    return res.status(401).json({ message: "GitHub access token not found. Please re-authenticate." });
+  }
+
+  const [owner, repo] = project.github_repo_name.split("/");
+
+  let defaultBranch: string;
+  try {
+    const repoInfo = await githubFetch(token, `/repos/${owner}/${repo}`) as { default_branch: string };
+    defaultBranch = repoInfo.default_branch;
+  } catch {
+    return res.status(502).json({ message: "Failed to fetch repository info from GitHub" });
+  }
+
+  try {
+    const discovered = await runBranchScan(projectId, token, owner, repo, defaultBranch);
+    return res.json({ discovered_branches: discovered });
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    console.error(`Branch scan error for project ${projectId}:`, errorMessage);
+    return res.status(502).json({ message: "Failed to scan branches from GitHub" });
+  }
+});
+
+// GET /api/projects/:id/branches/discovered — get stored discovered branches
+router.get("/:id/branches/discovered", requireAuth, async (req, res) => {
+  const projectId = parseInt(req.params.id as string, 10);
+  if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+
+  const project = await storage.getProjectById(projectId);
+  if (!project) return res.status(404).json({ message: "Project not found" });
+  if (project.user_id !== req.session.userId) return res.status(403).json({ message: "Forbidden" });
+
+  const allDiscovered = await storage.getDiscoveredBranches(projectId);
+  return res.json({ discovered_branches: allDiscovered.filter((b) => !b.dismissed_at).map(formatDiscoveredBranch) });
+});
+
+// POST /api/projects/:id/branches/:branchName/triage — take action on a discovered branch
+router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) => {
+  const projectId = parseInt(req.params.id as string, 10);
+  if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+
+  const branchName = decodeURIComponent(req.params.branchName as string);
+
+  const project = await storage.getProjectById(projectId);
+  if (!project) return res.status(404).json({ message: "Project not found" });
+  if (project.user_id !== req.session.userId) return res.status(403).json({ message: "Forbidden" });
+
+  if (!project.github_repo_name || !project.github_repo_name.includes("/")) {
+    return res.status(400).json({ message: "No GitHub repo linked to this project" });
+  }
+
+  const actionSchema = z.object({
+    action: z.enum(["merge_to_default", "merge_to_platform", "assign_to_replit", "dismiss"]),
+    platform_branch: z.string().optional(),
+  });
+  const parsed = actionSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Invalid action" });
+
+  const { action, platform_branch } = parsed.data;
+  const [owner, repo] = project.github_repo_name.split("/");
+
+  const discoveredBranch = await storage.getDiscoveredBranchByName(projectId, branchName);
+
+  if (action === "dismiss") {
+    if (discoveredBranch) {
+      await storage.dismissDiscoveredBranch(discoveredBranch.id, discoveredBranch.last_commit_sha);
+    }
+    return res.json({ message: "Branch dismissed" });
+  }
+
+  let token: string;
+  try {
+    token = await getAccessToken(req.session.userId!);
+  } catch {
+    return res.status(401).json({ message: "GitHub access token not found. Please re-authenticate." });
+  }
+
+  if (action === "assign_to_replit") {
+    const connections = await storage.getConnectionsByProject(projectId);
+    const replitConn = connections.find((c) => c.platform === "replit");
+    if (!replitConn) {
+      return res.status(400).json({ message: "No Replit connection exists for this project" });
+    }
+    await storage.updateConnection(replitConn.id, { branch_name: branchName, status: "drifted", last_synced_at: new Date() });
+    if (discoveredBranch) await storage.deleteDiscoveredBranch(discoveredBranch.id);
+    return res.json({ message: `Replit connection switched to branch ${branchName}` });
+  }
+
+  let defaultBranch: string;
+  try {
+    const repoInfo = await githubFetch(token, `/repos/${owner}/${repo}`) as { default_branch: string };
+    defaultBranch = repoInfo.default_branch;
+  } catch {
+    return res.status(502).json({ message: "Failed to fetch repository info from GitHub" });
+  }
+
+  try {
+    if (action === "merge_to_default") {
+      await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
+        method: "POST",
+        body: {
+          base: defaultBranch,
+          head: branchName,
+          commit_message: `Merge ${branchName} into ${defaultBranch} via VibeSyncPro`,
+        },
+      });
+    } else if (action === "merge_to_platform") {
+      if (!platform_branch) {
+        return res.status(400).json({ message: "platform_branch is required for merge_to_platform" });
+      }
+      await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
+        method: "POST",
+        body: {
+          base: platform_branch,
+          head: branchName,
+          commit_message: `Merge ${branchName} into ${platform_branch} via VibeSyncPro`,
+        },
+      });
+    }
+
+    if (discoveredBranch) await storage.deleteDiscoveredBranch(discoveredBranch.id);
+    return res.json({ message: "Branch merged successfully" });
+  } catch (err) {
+    const statusCode = (err as { statusCode?: number }).statusCode;
+    if (statusCode === 409) {
+      const base = action === "merge_to_default" ? defaultBranch : (platform_branch ?? defaultBranch);
+      const conflictUrl = `https://github.com/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(branchName)}`;
+      return res.status(409).json({
+        message: "These branches edited the same files differently. You'll need to resolve the conflicts on GitHub.",
+        conflict_url: conflictUrl,
+      });
+    }
+    const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    console.error(`Triage error for branch ${branchName}:`, errorMessage);
+    return res.status(502).json({ message: "Failed to merge branches on GitHub. Please try again." });
+  }
 });
 
 export default router;

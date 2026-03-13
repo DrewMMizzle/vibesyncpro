@@ -1,12 +1,14 @@
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, and, notInArray } from "drizzle-orm";
 import {
   users,
   projects,
   platformConnections,
+  discoveredBranches,
   type Project,
   type User,
   type PlatformConnection,
+  type DiscoveredBranch,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -21,6 +23,12 @@ export interface IStorage {
   updateConnection(connectionId: number, fields: { status?: string; branch_name?: string | null; last_synced_at?: Date | null; ahead_by?: number; behind_by?: number }): Promise<PlatformConnection | undefined>;
   deleteConnection(connectionId: number): Promise<void>;
   updateProject(projectId: number, fields: { github_repo_url?: string | null; github_repo_name?: string | null; name?: string; description?: string | null }): Promise<Project | undefined>;
+  upsertDiscoveredBranch(projectId: number, branchName: string, fields: { likely_platform?: string | null; ahead_by_default?: number; behind_by_default?: number; last_commit_sha?: string | null; dismissed_at?: Date | null; last_seen_at?: Date }): Promise<DiscoveredBranch>;
+  getDiscoveredBranches(projectId: number): Promise<DiscoveredBranch[]>;
+  getDiscoveredBranchByName(projectId: number, branchName: string): Promise<DiscoveredBranch | undefined>;
+  dismissDiscoveredBranch(id: number, lastCommitSha: string | null): Promise<void>;
+  deleteDiscoveredBranch(id: number): Promise<void>;
+  deleteStaleDiscoveredBranches(projectId: number, activeBranchNames: string[]): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -100,6 +108,49 @@ export class DatabaseStorage implements IStorage {
       .where(eq(projects.id, projectId))
       .returning();
     return project;
+  }
+  async upsertDiscoveredBranch(projectId: number, branchName: string, fields: { likely_platform?: string | null; ahead_by_default?: number; behind_by_default?: number; last_commit_sha?: string | null; dismissed_at?: Date | null; last_seen_at?: Date }): Promise<DiscoveredBranch> {
+    const [result] = await db.insert(discoveredBranches)
+      .values({ project_id: projectId, branch_name: branchName, ...fields })
+      .onConflictDoUpdate({
+        target: [discoveredBranches.project_id, discoveredBranches.branch_name],
+        set: { ...fields, updated_at: new Date() },
+      })
+      .returning();
+    return result;
+  }
+
+  async getDiscoveredBranches(projectId: number): Promise<DiscoveredBranch[]> {
+    return db.select().from(discoveredBranches).where(eq(discoveredBranches.project_id, projectId));
+  }
+
+  async getDiscoveredBranchByName(projectId: number, branchName: string): Promise<DiscoveredBranch | undefined> {
+    const [branch] = await db.select().from(discoveredBranches)
+      .where(and(eq(discoveredBranches.project_id, projectId), eq(discoveredBranches.branch_name, branchName)))
+      .limit(1);
+    return branch;
+  }
+
+  async dismissDiscoveredBranch(id: number, lastCommitSha: string | null): Promise<void> {
+    await db.update(discoveredBranches)
+      .set({ dismissed_at: new Date(), last_commit_sha: lastCommitSha, updated_at: new Date() })
+      .where(eq(discoveredBranches.id, id));
+  }
+
+  async deleteDiscoveredBranch(id: number): Promise<void> {
+    await db.delete(discoveredBranches).where(eq(discoveredBranches.id, id));
+  }
+
+  async deleteStaleDiscoveredBranches(projectId: number, activeBranchNames: string[]): Promise<void> {
+    if (activeBranchNames.length === 0) {
+      await db.delete(discoveredBranches).where(eq(discoveredBranches.project_id, projectId));
+      return;
+    }
+    await db.delete(discoveredBranches)
+      .where(and(
+        eq(discoveredBranches.project_id, projectId),
+        notInArray(discoveredBranches.branch_name, activeBranchNames)
+      ));
   }
 }
 

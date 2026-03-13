@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -36,6 +36,22 @@ export const platformConnections = pgTable("platform_connections", {
   updated_at: timestamp("updated_at").defaultNow(),
 });
 
+export const discoveredBranches = pgTable("discovered_branches", {
+  id: serial("id").primaryKey(),
+  project_id: integer("project_id").notNull().references(() => projects.id),
+  branch_name: text("branch_name").notNull(),
+  likely_platform: text("likely_platform"),
+  ahead_by_default: integer("ahead_by_default").default(0),
+  behind_by_default: integer("behind_by_default").default(0),
+  last_commit_sha: text("last_commit_sha"),
+  dismissed_at: timestamp("dismissed_at"),
+  last_seen_at: timestamp("last_seen_at").defaultNow(),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("discovered_branches_project_branch_idx").on(table.project_id, table.branch_name),
+]);
+
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   created_at: true,
@@ -58,5 +74,13 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type InsertProject = z.infer<typeof insertProjectSchema>;
 export type Project = typeof projects.$inferSelect;
+export const insertDiscoveredBranchSchema = createInsertSchema(discoveredBranches).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
 export type InsertPlatformConnection = z.infer<typeof insertPlatformConnectionSchema>;
 export type PlatformConnection = typeof platformConnections.$inferSelect;
+export type InsertDiscoveredBranch = z.infer<typeof insertDiscoveredBranchSchema>;
+export type DiscoveredBranch = typeof discoveredBranches.$inferSelect;

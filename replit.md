@@ -79,6 +79,21 @@ Each project can have up to 3 platform connections: `replit`, `claude_code`, `co
 - On merge conflict (GitHub 409), returns `conflict_url` pointing to GitHub compare page for manual resolution
 - Frontend connection cards show plain-English explanations and action buttons: "Merge to main" (ahead), "Update branch" (behind), "Auto-resolve" (conflict)
 
+### Ghost Branch Discovery
+
+AI agents (especially Claude Code) may create branches the user didn't register. VibeSyncPro detects these and surfaces them for triage.
+
+- **Database**: `discovered_branches` table stores branch name, likely platform, ahead/behind counts vs default, last commit SHA (for dismiss tracking), dismissed_at timestamp.
+- **Scan endpoint**: `POST /api/projects/:id/branches/scan` fetches all GitHub branches, filters out registered + default branches, compares against default and platform branches to attribute ownership, upserts into DB. Dismissed branches with unchanged SHA stay dismissed; new commits clear dismissal.
+- **Triage endpoint**: `POST /api/projects/:id/branches/:branchName/triage` with actions:
+  - `merge_to_default`: merge ghost branch into default branch via GitHub Merges API
+  - `merge_to_platform`: merge ghost branch into a specific platform branch (requires `platform_branch` field)
+  - `assign_to_replit`: update Replit connection's `branch_name` to the discovered branch
+  - `dismiss`: set `dismissed_at` on the record (resurfaces if new commits appear)
+- **GET endpoint**: `GET /api/projects/:id/branches/discovered` returns non-dismissed discovered branches
+- **Frontend**: "Discovered Branches" collapsible section on project page with count badge, scan button, per-branch cards showing attribution/commit info, and contextual action buttons
+- **Query key**: `["/api/projects", projectId, "branches", "discovered"]`
+
 ---
 
 ## External Dependencies
