@@ -597,7 +597,7 @@ export default function ProjectPage() {
                         branch_name: addBranch.trim() || null,
                       })
                     }
-                    disabled={addConnection.isPending}
+                    disabled={addConnection.isPending || (!!project.github_repo_name && !addBranch.trim())}
                     className="flex-1 px-4 py-2 rounded-lg bg-foreground text-background text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
                   >
                     {addConnection.isPending ? "Adding..." : "Add"}
