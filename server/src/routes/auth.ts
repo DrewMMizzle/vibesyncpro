@@ -9,9 +9,12 @@ const GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
 const GITHUB_USER_URL = "https://api.github.com/user";
 const SCOPES = "repo read:user";
 
+const ALLOWED_REDIRECTS = ["/onboard", "/dashboard"];
+
 declare module "express-session" {
   interface SessionData {
     oauthState?: string;
+    postAuthRedirect?: string;
   }
 }
 
@@ -23,6 +26,11 @@ router.get("/github", (req, res) => {
 
   const callbackUrl =
     process.env.GITHUB_CALLBACK_URL || "http://localhost:5000/auth/github/callback";
+
+  const redirect = req.query.redirect as string | undefined;
+  if (redirect && ALLOWED_REDIRECTS.includes(redirect)) {
+    req.session.postAuthRedirect = redirect;
+  }
 
   const state = crypto.randomBytes(32).toString("hex");
   req.session.oauthState = state;
@@ -118,7 +126,13 @@ router.get("/github/callback", async (req, res) => {
 
     req.session.userId = user.id;
 
-    return res.redirect("/?auth=success");
+    const postAuthRedirect = req.session.postAuthRedirect;
+    delete req.session.postAuthRedirect;
+    const redirectTo = postAuthRedirect && ALLOWED_REDIRECTS.includes(postAuthRedirect)
+      ? postAuthRedirect
+      : "/dashboard";
+
+    return res.redirect(redirectTo);
   } catch (error) {
     console.error("GitHub OAuth callback error:", error);
     return res.status(500).json({ message: "Internal server error during OAuth" });

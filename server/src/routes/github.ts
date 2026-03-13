@@ -83,5 +83,68 @@ router.get("/repos/:owner/:repo/branches", requireAuth, async (req, res) => {
   }
 });
 
+router.get("/repos/public", requireAuth, async (req, res) => {
+  const url = req.query.url as string;
+  if (!url) return res.status(400).json({ message: "url query parameter is required" });
+
+  const match = url.match(/github\.com\/([^/]+)\/([^/]+)/);
+  if (!match) return res.status(400).json({ message: "Invalid GitHub URL" });
+
+  const owner = match[1];
+  const repo = match[2].replace(/\.git$/, "");
+
+  try {
+    const ghRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!ghRes.ok) {
+      if (ghRes.status === 404) return res.status(404).json({ message: "Repository not found or is private" });
+      return res.status(502).json({ message: "Failed to look up repository" });
+    }
+    const data = await ghRes.json() as { full_name: string; name: string; default_branch: string; html_url: string; description: string | null; private: boolean };
+    return res.json({
+      full_name: data.full_name,
+      name: data.name,
+      default_branch: data.default_branch,
+      html_url: data.html_url,
+      description: data.description,
+      private: data.private,
+    });
+  } catch {
+    return res.status(502).json({ message: "Failed to reach GitHub API" });
+  }
+});
+
+router.post("/fork", requireAuth, async (req, res) => {
+  const { repo_full_name } = req.body as { repo_full_name?: string };
+  if (!repo_full_name || !repo_full_name.includes("/")) {
+    return res.status(400).json({ message: "repo_full_name is required (owner/repo)" });
+  }
+
+  try {
+    const token = await getAccessToken(req.session.userId!);
+    const [owner, repo] = repo_full_name.split("/");
+    const forked = await githubFetch(token, `/repos/${owner}/${repo}/forks`, {
+      method: "POST",
+      body: {},
+    }) as { full_name: string; name: string; default_branch: string; html_url: string; private: boolean };
+
+    return res.status(201).json({
+      full_name: forked.full_name,
+      name: forked.name,
+      default_branch: forked.default_branch,
+      html_url: forked.html_url,
+      private: forked.private,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("GitHub fork error:", message);
+    return res.status(502).json({ message: "Failed to fork repository" });
+  }
+});
+
 export { githubFetch, getAccessToken };
 export default router;

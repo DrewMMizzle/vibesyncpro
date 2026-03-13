@@ -14,6 +14,13 @@ export const errorSchemas = {
 const projectCreateInput = insertProjectSchema.pick({
   name: true,
   description: true,
+}).extend({
+  github_repo_url: z.string().optional().nullable(),
+  github_repo_name: z.string().optional().nullable(),
+  connections: z.array(z.object({
+    platform: z.enum(["replit", "claude_code", "computer"]),
+    branch_name: z.string().nullable(),
+  })).optional(),
 });
 
 export const api = {
