@@ -30,6 +30,9 @@ async function githubFetch(token: string, path: string, options?: { method?: str
     (error as GitHubApiError).statusCode = res.status;
     throw error;
   }
+  if (res.status === 204) {
+    return null;
+  }
   return res.json();
 }
 
