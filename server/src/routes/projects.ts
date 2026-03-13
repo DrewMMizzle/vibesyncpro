@@ -162,6 +162,19 @@ router.patch("/:id", requireAuth, async (req, res) => {
   return res.json(formatProject(updated, connections));
 });
 
+// DELETE /api/projects/:id — delete a project and all related data
+router.delete("/:id", requireAuth, async (req, res) => {
+  const projectId = parseInt(req.params.id as string, 10);
+  if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+
+  const project = await storage.getProjectById(projectId);
+  if (!project) return res.status(404).json({ message: "Project not found" });
+  if (project.user_id !== req.session.userId) return res.status(403).json({ message: "Forbidden" });
+
+  await storage.deleteProject(projectId);
+  return res.json({ deleted: true });
+});
+
 // POST /api/projects/:id/sync — compare branches via GitHub API and update statuses
 router.post("/:id/sync", requireAuth, async (req, res) => {
   const projectId = parseInt(req.params.id as string, 10);

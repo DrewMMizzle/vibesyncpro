@@ -29,6 +29,7 @@ export interface IStorage {
   dismissDiscoveredBranch(id: number, lastCommitSha: string | null): Promise<void>;
   deleteDiscoveredBranch(id: number): Promise<void>;
   deleteStaleDiscoveredBranches(projectId: number, activeBranchNames: string[]): Promise<void>;
+  deleteProject(projectId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -151,6 +152,14 @@ export class DatabaseStorage implements IStorage {
         eq(discoveredBranches.project_id, projectId),
         notInArray(discoveredBranches.branch_name, activeBranchNames)
       ));
+  }
+
+  async deleteProject(projectId: number): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx.delete(discoveredBranches).where(eq(discoveredBranches.project_id, projectId));
+      await tx.delete(platformConnections).where(eq(platformConnections.project_id, projectId));
+      await tx.delete(projects).where(eq(projects.id, projectId));
+    });
   }
 }
 

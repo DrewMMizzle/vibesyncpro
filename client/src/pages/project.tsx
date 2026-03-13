@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Plus, Trash2, Monitor, Bot, Globe, RefreshCw, GitBranch,
   Search, Lock, Unlock, ExternalLink, GitMerge, ArrowDownToLine, Zap, AlertTriangle,
-  Eye, EyeOff, Send, FolderGit2, ChevronDown, ChevronRight,
+  Eye, EyeOff, Send, FolderGit2, ChevronDown, ChevronRight, Pencil, Check, X, Settings,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -111,9 +111,14 @@ export default function ProjectPage() {
   const { isLoggedIn, isLoading: authLoading } = useAuth();
   const [showAddModal, setShowAddModal] = useState(false);
   const [showRepoModal, setShowRepoModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [addPlatform, setAddPlatform] = useState<Platform>("replit");
   const [addBranch, setAddBranch] = useState("");
   const [repoSearch, setRepoSearch] = useState("");
+  const [editingName, setEditingName] = useState(false);
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
   const { toast } = useToast();
 
   const projectId = params?.id ? parseInt(params.id, 10) : null;
@@ -226,6 +231,37 @@ export default function ProjectPage() {
     },
     onError: (err: Error) => {
       toast({ title: "Sync failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const updateProject = useMutation({
+    mutationFn: async (fields: { name?: string; description?: string | null }) => {
+      const res = await apiRequest("PATCH", `/api/projects/${projectId}`, fields);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      setEditingName(false);
+      setEditingDesc(false);
+      toast({ title: "Project updated" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteProject = useMutation({
+    mutationFn: async () => {
+      await apiRequest("DELETE", `/api/projects/${projectId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      toast({ title: "Project deleted" });
+      navigate("/dashboard");
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to delete project", description: err.message, variant: "destructive" });
     },
   });
 
@@ -389,13 +425,101 @@ export default function ProjectPage() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-10"
         >
-          <h1 data-testid="text-project-name" className="text-3xl font-light text-foreground mb-1">
-            {project.name}
-          </h1>
-          {project.description && (
-            <p data-testid="text-project-description" className="text-muted-foreground mt-2">
-              {project.description}
-            </p>
+          {editingName ? (
+            <div className="flex items-center gap-2">
+              <input
+                data-testid="input-edit-name"
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && editName.trim()) {
+                    updateProject.mutate({ name: editName.trim() });
+                  } else if (e.key === "Escape") {
+                    setEditingName(false);
+                  }
+                }}
+                className="text-3xl font-light text-foreground bg-transparent border-b-2 border-foreground/20 focus:border-foreground/50 outline-none w-full"
+                autoFocus
+              />
+              <button
+                data-testid="button-save-name"
+                onClick={() => editName.trim() && updateProject.mutate({ name: editName.trim() })}
+                disabled={updateProject.isPending || !editName.trim()}
+                className="text-green-600 hover:text-green-700 disabled:opacity-50"
+              >
+                <Check className="w-5 h-5" />
+              </button>
+              <button
+                data-testid="button-cancel-name"
+                onClick={() => setEditingName(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          ) : (
+            <div className="group flex items-center gap-2">
+              <h1 data-testid="text-project-name" className="text-3xl font-light text-foreground mb-1">
+                {project.name}
+              </h1>
+              <button
+                data-testid="button-edit-name"
+                onClick={() => { setEditName(project.name); setEditingName(true); }}
+                className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {editingDesc ? (
+            <div className="flex items-start gap-2 mt-2">
+              <textarea
+                data-testid="input-edit-description"
+                value={editDesc}
+                onChange={(e) => setEditDesc(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    updateProject.mutate({ description: editDesc.trim() || null });
+                  } else if (e.key === "Escape") {
+                    setEditingDesc(false);
+                  }
+                }}
+                rows={2}
+                className="text-muted-foreground bg-transparent border-b-2 border-foreground/20 focus:border-foreground/50 outline-none w-full resize-none"
+                autoFocus
+              />
+              <button
+                data-testid="button-save-description"
+                onClick={() => updateProject.mutate({ description: editDesc.trim() || null })}
+                disabled={updateProject.isPending}
+                className="text-green-600 hover:text-green-700 disabled:opacity-50 mt-1"
+              >
+                <Check className="w-5 h-5" />
+              </button>
+              <button
+                data-testid="button-cancel-description"
+                onClick={() => setEditingDesc(false)}
+                className="text-muted-foreground hover:text-foreground mt-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          ) : (
+            <div className="group flex items-center gap-2 mt-2">
+              <p data-testid="text-project-description" className="text-muted-foreground">
+                {project.description || "No description"}
+              </p>
+              <button
+                data-testid="button-edit-description"
+                onClick={() => { setEditDesc(project.description ?? ""); setEditingDesc(true); }}
+                className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+            </div>
           )}
         </motion.div>
 
@@ -818,7 +942,81 @@ export default function ProjectPage() {
             </AnimatePresence>
           </div>
         )}
+        {/* Danger Zone */}
+        <div className="mt-16 pt-8 border-t border-red-200 dark:border-red-900">
+          <h2 className="text-sm font-medium text-red-600 dark:text-red-400 uppercase tracking-wider mb-4">
+            Danger Zone
+          </h2>
+          <div className="border border-red-200 dark:border-red-900 rounded-lg p-5 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-foreground">Delete this project</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                This will permanently remove this project, all connected platforms, and discovered branches.
+              </p>
+            </div>
+            <button
+              data-testid="button-delete-project"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete
+            </button>
+          </div>
+        </div>
       </main>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.4 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black z-40"
+              onClick={() => !deleteProject.isPending && setShowDeleteConfirm(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            >
+              <div className="bg-background border border-border rounded-xl p-6 w-full max-w-sm shadow-xl">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-950 flex items-center justify-center">
+                    <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                  </div>
+                  <h3 className="text-lg font-medium text-foreground">Delete project?</h3>
+                </div>
+                <p className="text-sm text-muted-foreground mb-6">
+                  Are you sure you want to delete <strong>{project.name}</strong>? This action cannot be undone. All connected platforms and discovered branches will also be removed.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    data-testid="button-cancel-delete"
+                    onClick={() => setShowDeleteConfirm(false)}
+                    disabled={deleteProject.isPending}
+                    className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    data-testid="button-confirm-delete"
+                    onClick={() => deleteProject.mutate()}
+                    disabled={deleteProject.isPending}
+                    className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+                  >
+                    {deleteProject.isPending ? "Deleting..." : "Delete permanently"}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Link Repo Modal */}
       <AnimatePresence>
