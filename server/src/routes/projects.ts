@@ -301,6 +301,18 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
           commit_message: `Merge ${branchName} into ${defaultBranch} via VibeSyncPro`,
         },
       });
+      try {
+        await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
+          method: "POST",
+          body: {
+            base: branchName,
+            head: defaultBranch,
+            commit_message: `Update ${branchName} from ${defaultBranch} via VibeSyncPro`,
+          },
+        });
+      } catch {
+        // If already up-to-date (204/no-op), GitHub may return a non-error; ignore failures here
+      }
     } else {
       await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
         method: "POST",
