@@ -296,7 +296,10 @@ export default function ProjectPage() {
             return `${label} has conflicting changes on \`${c.branch_name}\`.`;
           return `${label}: ${c.status}.`;
         });
-        toast({ title: "Sync complete", description: lines.join(" ") || "All branch statuses updated" });
+        const syncDesc = lines.length > 0
+          ? lines.map((line, i) => <span key={i} className="block">{line}</span>)
+          : "All branch statuses updated";
+        toast({ title: "Sync complete", description: syncDesc });
       } else {
         const failedPlatforms = data.errors?.map((e) => {
           const label = PLATFORM_LABELS[e.platform as Platform] ?? e.platform;
@@ -370,8 +373,8 @@ export default function ProjectPage() {
       const branchLabel = conn?.branch_name ?? "branch";
       const defaultLabel = defaultBranch ?? "default branch";
       const title = variables.action === "merge_to_default"
-        ? `Merged ${branchLabel} into ${defaultLabel}`
-        : `${branchLabel} updated from ${defaultLabel}`;
+        ? `Merged ${branchLabel} into ${defaultLabel} successfully`
+        : `${branchLabel} updated from ${defaultLabel} successfully`;
       toast({ title });
       setConflictInfo(null);
     },
