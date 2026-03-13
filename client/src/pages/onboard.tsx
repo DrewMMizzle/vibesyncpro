@@ -263,7 +263,7 @@ export default function OnboardPage() {
     try {
       const forked = await forkRepoMutation.mutateAsync(resolvedForkRepo.full_name);
       setSelectedRepo(forked);
-      toast({ title: "Forked!", description: `Forked ${resolvedForkRepo.full_name} to your account as ${forked.full_name}` });
+      toast({ title: "Forked!", description: `Forked ${resolvedForkRepo.full_name} to your account as ${forked.full_name} — ready to connect agents` });
       goNext();
     } catch (err) {
       toast({ title: "Fork failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
