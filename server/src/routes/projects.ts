@@ -155,7 +155,16 @@ router.patch("/:id", requireAuth, async (req, res) => {
   const parsed = bodySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "Invalid fields" });
 
-  const updated = await storage.updateProject(projectId, parsed.data);
+  const data = { ...parsed.data };
+  if (data.name !== undefined) {
+    data.name = data.name.trim();
+    if (!data.name) return res.status(400).json({ message: "Name cannot be empty" });
+  }
+  if (data.description !== undefined && data.description !== null) {
+    data.description = data.description.trim() || null;
+  }
+
+  const updated = await storage.updateProject(projectId, data);
   if (!updated) return res.status(404).json({ message: "Project not found" });
 
   const connections = await storage.getConnectionsByProject(projectId);
