@@ -270,7 +270,8 @@ export default function ProjectPage() {
     },
   });
 
-  const [showDiscovered, setShowDiscovered] = useState(true);
+  const [showDiscovered, setShowDiscovered] = useState(false);
+  const [hasAutoExpanded, setHasAutoExpanded] = useState(false);
   const [triageConflictInfo, setTriageConflictInfo] = useState<{ branchName: string; url: string } | null>(null);
 
   const { data: discoveredData } = useQuery<{ discovered_branches: DiscoveredBranchItem[] }>({
@@ -280,6 +281,13 @@ export default function ProjectPage() {
   });
 
   const discoveredBranches = discoveredData?.discovered_branches ?? [];
+
+  useEffect(() => {
+    if (discoveredBranches.length > 0 && !hasAutoExpanded) {
+      setShowDiscovered(true);
+      setHasAutoExpanded(true);
+    }
+  }, [discoveredBranches.length, hasAutoExpanded]);
 
   const scanBranches = useMutation({
     mutationFn: async () => {

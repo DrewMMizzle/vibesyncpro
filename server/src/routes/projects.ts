@@ -470,16 +470,15 @@ async function runBranchScan(projectId: number, token: string, owner: string, re
     let aheadByParent = 0;
     let behindByParent = 0;
     const platformBranches = connections.filter((c) => c.branch_name && c.branch_name !== defaultBranch);
-    let bestDistance = Infinity;
+    let closestAhead = Infinity;
     for (const conn of platformBranches) {
       try {
         const cmp = await githubFetch(
           token,
           `/repos/${owner}/${repo}/compare/${encodeURIComponent(conn.branch_name!)}...${encodeURIComponent(branch.name)}`
         ) as { ahead_by: number; behind_by: number };
-        const distance = cmp.ahead_by + cmp.behind_by;
-        if (distance < bestDistance) {
-          bestDistance = distance;
+        if (cmp.behind_by === 0 && cmp.ahead_by > 0 && cmp.ahead_by < closestAhead) {
+          closestAhead = cmp.ahead_by;
           likelyPlatform = conn.platform;
           aheadByParent = cmp.ahead_by;
           behindByParent = cmp.behind_by;
