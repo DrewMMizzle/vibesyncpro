@@ -41,7 +41,10 @@ interface DiscoveredBranchItem {
   likely_platform: string | null;
   ahead_by_default: number;
   behind_by_default: number;
+  ahead_by_parent: number;
+  behind_by_parent: number;
   last_commit_sha: string | null;
+  last_commit_at: string | null;
   dismissed_at: string | null;
   last_seen_at: string | null;
 }
@@ -213,6 +216,7 @@ export default function ProjectPage() {
     },
     onSuccess: (data: { synced: boolean; errors?: Array<{ platform: string; error: string }> }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "branches", "discovered"] });
       if (data.synced) {
         toast({ title: "Sync complete", description: "All branch statuses updated" });
       } else {
@@ -315,6 +319,7 @@ export default function ProjectPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
       toast({ title: "Done", description: "Action completed successfully" });
       setTriageConflictInfo(null);
+      scanBranches.mutate();
     },
     onError: (err: Error & { conflict_url?: string }, variables) => {
       if (err.conflict_url) {
@@ -714,9 +719,15 @@ export default function ProjectPage() {
                                 {branch.behind_by_default > 0 && ` · ${branch.behind_by_default} ${branch.behind_by_default === 1 ? "commit" : "commits"} behind`}
                               </p>
 
-                              {branch.last_seen_at && (
-                                <p className="text-[10px] text-muted-foreground/50 mt-1 ml-6">
-                                  Last seen {timeAgo(branch.last_seen_at)}
+                              {platformLabel && (branch.ahead_by_parent > 0 || branch.behind_by_parent > 0) && (
+                                <p data-testid={`text-discovered-parent-${branch.id}`} className="text-xs text-muted-foreground mt-1 ml-6">
+                                  vs {platformLabel} branch: {branch.ahead_by_parent} ahead, {branch.behind_by_parent} behind
+                                </p>
+                              )}
+
+                              {branch.last_commit_at && (
+                                <p data-testid={`text-discovered-lastcommit-${branch.id}`} className="text-[10px] text-muted-foreground/50 mt-1 ml-6">
+                                  Last commit {timeAgo(branch.last_commit_at)}
                                 </p>
                               )}
                             </div>

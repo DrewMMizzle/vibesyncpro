@@ -23,7 +23,7 @@ export interface IStorage {
   updateConnection(connectionId: number, fields: { status?: string; branch_name?: string | null; last_synced_at?: Date | null; ahead_by?: number; behind_by?: number }): Promise<PlatformConnection | undefined>;
   deleteConnection(connectionId: number): Promise<void>;
   updateProject(projectId: number, fields: { github_repo_url?: string | null; github_repo_name?: string | null; name?: string; description?: string | null }): Promise<Project | undefined>;
-  upsertDiscoveredBranch(projectId: number, branchName: string, fields: { likely_platform?: string | null; ahead_by_default?: number; behind_by_default?: number; last_commit_sha?: string | null; dismissed_at?: Date | null; last_seen_at?: Date }): Promise<DiscoveredBranch>;
+  upsertDiscoveredBranch(projectId: number, branchName: string, fields: { likely_platform?: string | null; ahead_by_default?: number; behind_by_default?: number; ahead_by_parent?: number; behind_by_parent?: number; last_commit_sha?: string | null; last_commit_at?: Date | null; dismissed_at?: Date | null; last_seen_at?: Date }): Promise<DiscoveredBranch>;
   getDiscoveredBranches(projectId: number): Promise<DiscoveredBranch[]>;
   getDiscoveredBranchByName(projectId: number, branchName: string): Promise<DiscoveredBranch | undefined>;
   dismissDiscoveredBranch(id: number, lastCommitSha: string | null): Promise<void>;
@@ -109,7 +109,7 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return project;
   }
-  async upsertDiscoveredBranch(projectId: number, branchName: string, fields: { likely_platform?: string | null; ahead_by_default?: number; behind_by_default?: number; last_commit_sha?: string | null; dismissed_at?: Date | null; last_seen_at?: Date }): Promise<DiscoveredBranch> {
+  async upsertDiscoveredBranch(projectId: number, branchName: string, fields: { likely_platform?: string | null; ahead_by_default?: number; behind_by_default?: number; ahead_by_parent?: number; behind_by_parent?: number; last_commit_sha?: string | null; last_commit_at?: Date | null; dismissed_at?: Date | null; last_seen_at?: Date }): Promise<DiscoveredBranch> {
     const [result] = await db.insert(discoveredBranches)
       .values({ project_id: projectId, branch_name: branchName, ...fields })
       .onConflictDoUpdate({
