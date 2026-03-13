@@ -439,6 +439,13 @@ export default function ProjectPage() {
                     setEditingName(false);
                   }
                 }}
+                onBlur={() => {
+                  if (editName.trim() && editName.trim() !== project.name) {
+                    updateProject.mutate({ name: editName.trim() });
+                  } else {
+                    setEditingName(false);
+                  }
+                }}
                 className="text-3xl font-light text-foreground bg-transparent border-b-2 border-foreground/20 focus:border-foreground/50 outline-none w-full"
                 autoFocus
               />
@@ -484,6 +491,14 @@ export default function ProjectPage() {
                     e.preventDefault();
                     updateProject.mutate({ description: editDesc.trim() || null });
                   } else if (e.key === "Escape") {
+                    setEditingDesc(false);
+                  }
+                }}
+                onBlur={() => {
+                  const trimmed = editDesc.trim() || null;
+                  if (trimmed !== (project.description ?? null)) {
+                    updateProject.mutate({ description: trimmed });
+                  } else {
                     setEditingDesc(false);
                   }
                 }}
