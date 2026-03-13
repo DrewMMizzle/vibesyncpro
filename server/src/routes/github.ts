@@ -94,17 +94,10 @@ router.get("/repos/public", requireAuth, async (req, res) => {
   const repo = match[2].replace(/\.git$/, "");
 
   try {
-    const ghRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}`, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    });
-    if (!ghRes.ok) {
-      if (ghRes.status === 404) return res.status(404).json({ message: "Repository not found or is private" });
-      return res.status(502).json({ message: "Failed to look up repository" });
-    }
-    const data = await ghRes.json() as { full_name: string; name: string; default_branch: string; html_url: string; description: string | null; private: boolean };
+    const token = await getAccessToken(req.session.userId!);
+    const data = await githubFetch(token, `/repos/${owner}/${repo}`) as {
+      full_name: string; name: string; default_branch: string; html_url: string; description: string | null; private: boolean;
+    };
     return res.json({
       full_name: data.full_name,
       name: data.name,
@@ -113,7 +106,11 @@ router.get("/repos/public", requireAuth, async (req, res) => {
       description: data.description,
       private: data.private,
     });
-  } catch {
+  } catch (err) {
+    const ghErr = err as GitHubApiError;
+    if (ghErr.statusCode === 404) {
+      return res.status(404).json({ message: "Repository not found" });
+    }
     return res.status(502).json({ message: "Failed to reach GitHub API" });
   }
 });
