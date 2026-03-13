@@ -310,8 +310,11 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
             commit_message: `Update ${branchName} from ${defaultBranch} via VibeSyncPro`,
           },
         });
-      } catch {
-        // If already up-to-date (204/no-op), GitHub may return a non-error; ignore failures here
+      } catch (syncErr) {
+        const syncStatus = (syncErr as { statusCode?: number }).statusCode;
+        if (syncStatus && syncStatus !== 204) {
+          console.warn(`Post-merge sync of ${branchName} from ${defaultBranch} failed (${syncStatus}), primary merge succeeded`);
+        }
       }
     } else {
       await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
@@ -356,7 +359,9 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
   } catch (err) {
     const statusCode = (err as { statusCode?: number }).statusCode;
     if (statusCode === 409) {
-      const conflictUrl = `https://github.com/${owner}/${repo}/compare/${encodeURIComponent(defaultBranch)}...${encodeURIComponent(branchName)}`;
+      const base = action === "merge_to_default" ? defaultBranch : branchName;
+      const head = action === "merge_to_default" ? branchName : defaultBranch;
+      const conflictUrl = `https://github.com/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`;
       return res.status(409).json({
         message: "These branches edited the same files differently. You'll need to resolve the conflicts on GitHub.",
         conflict_url: conflictUrl,
