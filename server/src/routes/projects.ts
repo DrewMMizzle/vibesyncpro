@@ -120,6 +120,7 @@ router.post("/:id/sync", requireAuth, async (req, res) => {
   }
 
   const results: Array<{ id: number; platform: string; branch_name: string | null; status: string; last_synced_at: string | null; ahead_by?: number; behind_by?: number }> = [];
+  const errors: Array<{ id: number; platform: string; error: string }> = [];
 
   for (const conn of connections) {
     if (!conn.branch_name) {
@@ -163,11 +164,12 @@ router.post("/:id/sync", requireAuth, async (req, res) => {
       });
     } catch (err: any) {
       console.error(`Sync error for connection ${conn.id}:`, err.message);
+      errors.push({ id: conn.id, platform: conn.platform, error: err.message });
       results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: conn.status, last_synced_at: conn.last_synced_at?.toISOString() ?? null });
     }
   }
 
-  return res.json({ synced: true, connections: results, default_branch: defaultBranch });
+  return res.json({ synced: errors.length === 0, errors, connections: results, default_branch: defaultBranch });
 });
 
 // POST /api/projects/:id/connections
@@ -218,7 +220,6 @@ router.patch("/:id/connections/:connId", requireAuth, async (req, res) => {
   if (!conn || conn.project_id !== projectId) return res.status(404).json({ message: "Connection not found" });
 
   const bodySchema = z.object({
-    status: z.enum(VALID_STATUSES).optional(),
     branch_name: z.string().optional().nullable(),
   });
   const parsed = bodySchema.safeParse(req.body);

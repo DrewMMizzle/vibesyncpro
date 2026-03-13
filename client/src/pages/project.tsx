@@ -197,9 +197,14 @@ export default function ProjectPage() {
       const res = await apiRequest("POST", `/api/projects/${projectId}/sync`);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: { synced: boolean; errors?: Array<{ platform: string; error: string }> }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
-      toast({ title: "Sync complete", description: "Branch statuses updated" });
+      if (data.synced) {
+        toast({ title: "Sync complete", description: "All branch statuses updated" });
+      } else {
+        const failedPlatforms = data.errors?.map((e) => e.platform).join(", ") ?? "unknown";
+        toast({ title: "Partial sync", description: `Some platforms failed to sync: ${failedPlatforms}`, variant: "destructive" });
+      }
     },
     onError: (err: Error) => {
       toast({ title: "Sync failed", description: err.message, variant: "destructive" });
