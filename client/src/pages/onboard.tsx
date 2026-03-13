@@ -78,6 +78,9 @@ export default function OnboardPage() {
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
   const [forkUrl, setForkUrl] = useState("");
   const [repoSearch, setRepoSearch] = useState("");
+  const [existingRepoUrl, setExistingRepoUrl] = useState("");
+  const [existingUrlMode, setExistingUrlMode] = useState(false);
+  const [resolvedForkRepo, setResolvedForkRepo] = useState<GitHubRepo | null>(null);
   const [platforms, setPlatforms] = useState<Record<Platform, PlatformSetup>>({
     replit: { enabled: false, branch_name: null },
     claude_code: { enabled: false, branch_name: null },
@@ -166,17 +169,39 @@ export default function OnboardPage() {
     goNext();
   };
 
-  const handleForkSubmit = async () => {
+  const handleExistingUrlResolve = async () => {
+    if (!existingRepoUrl.trim()) return;
+    try {
+      const repo = await lookupPublicRepo.mutateAsync(existingRepoUrl.trim());
+      setSelectedRepo(repo);
+      goNext();
+    } catch (err) {
+      toast({ title: "Couldn't find that repo", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+    }
+  };
+
+  const handleForkUrlResolve = async () => {
     if (!forkUrl.trim()) return;
+    lookupPublicRepo.reset();
+    setResolvedForkRepo(null);
     try {
       const publicRepo = await lookupPublicRepo.mutateAsync(forkUrl.trim());
       if (publicRepo.private) {
         toast({ title: "Private repo", description: "This repository is private. Use 'I have a GitHub repo' instead.", variant: "destructive" });
         return;
       }
-      const forked = await forkRepo.mutateAsync(publicRepo.full_name);
+      setResolvedForkRepo(publicRepo);
+    } catch (err) {
+      toast({ title: "Couldn't find that repo", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+    }
+  };
+
+  const handleForkConfirm = async () => {
+    if (!resolvedForkRepo) return;
+    try {
+      const forked = await forkRepo.mutateAsync(resolvedForkRepo.full_name);
       setSelectedRepo(forked);
-      toast({ title: "Forked!", description: `${publicRepo.full_name} forked to your account` });
+      toast({ title: "Forked!", description: `${resolvedForkRepo.full_name} forked to your account` });
       goNext();
     } catch (err) {
       toast({ title: "Fork failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
@@ -375,49 +400,105 @@ export default function OnboardPage() {
                   >
                     <button
                       data-testid="button-back-starting-point"
-                      onClick={() => setStartingPoint(null)}
+                      onClick={() => { setStartingPoint(null); setExistingUrlMode(false); setExistingRepoUrl(""); lookupPublicRepo.reset(); }}
                       className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors self-start"
                     >
                       <ArrowLeft className="w-3 h-3" />
                       Choose differently
                     </button>
 
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
-                      <input
-                        data-testid="input-repo-search"
-                        type="text"
-                        value={repoSearch}
-                        onChange={(e) => setRepoSearch(e.target.value)}
-                        placeholder="Search your repos..."
-                        className="w-full pl-10 pr-4 py-3 rounded-lg border border-border bg-transparent text-foreground placeholder:text-muted-foreground/40 focus:border-foreground focus:outline-none transition-colors"
-                      />
+                    <div className="flex gap-2 mb-1">
+                      <button
+                        data-testid="button-existing-picker"
+                        onClick={() => { setExistingUrlMode(false); lookupPublicRepo.reset(); }}
+                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${!existingUrlMode ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground"}`}
+                      >
+                        My repos
+                      </button>
+                      <button
+                        data-testid="button-existing-url"
+                        onClick={() => setExistingUrlMode(true)}
+                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${existingUrlMode ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground"}`}
+                      >
+                        Paste URL
+                      </button>
                     </div>
 
-                    <div className="max-h-72 overflow-y-auto rounded-lg border border-border divide-y divide-border">
-                      {reposLoading ? (
-                        <div className="flex items-center justify-center py-8">
-                          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                    {!existingUrlMode ? (
+                      <>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
+                          <input
+                            data-testid="input-repo-search"
+                            type="text"
+                            value={repoSearch}
+                            onChange={(e) => setRepoSearch(e.target.value)}
+                            placeholder="Search your repos..."
+                            className="w-full pl-10 pr-4 py-3 rounded-lg border border-border bg-transparent text-foreground placeholder:text-muted-foreground/40 focus:border-foreground focus:outline-none transition-colors"
+                          />
                         </div>
-                      ) : filteredRepos.length === 0 ? (
-                        <p className="text-sm text-muted-foreground text-center py-6">No repos found</p>
-                      ) : (
-                        filteredRepos.map((repo) => (
-                          <button
-                            key={repo.full_name}
-                            data-testid={`button-repo-${repo.full_name}`}
-                            onClick={() => handleSelectRepo(repo)}
-                            className="w-full flex items-center gap-3 p-3 hover:bg-muted/50 transition-colors text-left"
-                          >
-                            <Github className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium text-foreground truncate">{repo.full_name}</p>
-                              <p className="text-xs text-muted-foreground">{repo.default_branch}</p>
+
+                        <div className="max-h-72 overflow-y-auto rounded-lg border border-border divide-y divide-border">
+                          {reposLoading ? (
+                            <div className="flex items-center justify-center py-8">
+                              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
                             </div>
+                          ) : filteredRepos.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-6">No repos found</p>
+                          ) : (
+                            filteredRepos.map((repo) => (
+                              <button
+                                key={repo.full_name}
+                                data-testid={`button-repo-${repo.full_name}`}
+                                onClick={() => handleSelectRepo(repo)}
+                                className="w-full flex items-center gap-3 p-3 hover:bg-muted/50 transition-colors text-left"
+                              >
+                                <Github className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-foreground truncate">{repo.full_name}</p>
+                                  <p className="text-xs text-muted-foreground">{repo.default_branch}</p>
+                                </div>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm text-muted-foreground">
+                          Paste a GitHub repository URL to connect it.
+                        </p>
+                        <div className="flex gap-2">
+                          <input
+                            data-testid="input-existing-repo-url"
+                            type="text"
+                            value={existingRepoUrl}
+                            onChange={(e) => setExistingRepoUrl(e.target.value)}
+                            onBlur={() => { if (existingRepoUrl.trim()) handleExistingUrlResolve(); }}
+                            placeholder="https://github.com/owner/repo"
+                            className="flex-1 px-4 py-3 rounded-lg border border-border bg-transparent text-foreground placeholder:text-muted-foreground/40 focus:border-foreground focus:outline-none transition-colors"
+                          />
+                          <button
+                            data-testid="button-existing-url-resolve"
+                            onClick={handleExistingUrlResolve}
+                            disabled={!existingRepoUrl.trim() || lookupPublicRepo.isPending}
+                            className="flex items-center gap-2 px-5 py-3 rounded-lg bg-foreground text-background font-medium transition-opacity disabled:opacity-40"
+                          >
+                            {lookupPublicRepo.isPending ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <ArrowRight className="w-4 h-4" />
+                            )}
+                            Connect
                           </button>
-                        ))
-                      )}
-                    </div>
+                        </div>
+                        {lookupPublicRepo.isError && (
+                          <p data-testid="text-existing-url-error" className="text-sm text-red-500">
+                            {lookupPublicRepo.error instanceof Error ? lookupPublicRepo.error.message : "Couldn't find that repo"}
+                          </p>
+                        )}
+                      </>
+                    )}
                   </motion.div>
                 )}
 
@@ -429,7 +510,7 @@ export default function OnboardPage() {
                   >
                     <button
                       data-testid="button-back-starting-point-fork"
-                      onClick={() => { setStartingPoint(null); setForkUrl(""); lookupPublicRepo.reset(); }}
+                      onClick={() => { setStartingPoint(null); setForkUrl(""); setResolvedForkRepo(null); lookupPublicRepo.reset(); }}
                       className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors self-start"
                     >
                       <ArrowLeft className="w-3 h-3" />
@@ -445,29 +526,65 @@ export default function OnboardPage() {
                         data-testid="input-fork-url"
                         type="text"
                         value={forkUrl}
-                        onChange={(e) => setForkUrl(e.target.value)}
+                        onChange={(e) => { setForkUrl(e.target.value); setResolvedForkRepo(null); }}
+                        onBlur={() => { if (forkUrl.trim() && !resolvedForkRepo) handleForkUrlResolve(); }}
                         placeholder="https://github.com/owner/repo"
                         className="flex-1 px-4 py-3 rounded-lg border border-border bg-transparent text-foreground placeholder:text-muted-foreground/40 focus:border-foreground focus:outline-none transition-colors"
                       />
-                      <button
-                        data-testid="button-fork-submit"
-                        onClick={handleForkSubmit}
-                        disabled={!forkUrl.trim() || lookupPublicRepo.isPending || forkRepo.isPending}
-                        className="flex items-center gap-2 px-5 py-3 rounded-lg bg-foreground text-background font-medium transition-opacity disabled:opacity-40"
-                      >
-                        {(lookupPublicRepo.isPending || forkRepo.isPending) ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <GitFork className="w-4 h-4" />
-                        )}
-                        Fork
-                      </button>
+                      {!resolvedForkRepo && (
+                        <button
+                          data-testid="button-fork-lookup"
+                          onClick={handleForkUrlResolve}
+                          disabled={!forkUrl.trim() || lookupPublicRepo.isPending}
+                          className="flex items-center gap-2 px-5 py-3 rounded-lg bg-muted text-foreground font-medium transition-opacity disabled:opacity-40"
+                        >
+                          {lookupPublicRepo.isPending ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Search className="w-4 h-4" />
+                          )}
+                          Look up
+                        </button>
+                      )}
                     </div>
 
                     {lookupPublicRepo.isError && (
                       <p data-testid="text-fork-error" className="text-sm text-red-500">
                         {lookupPublicRepo.error instanceof Error ? lookupPublicRepo.error.message : "Couldn't find that repo"}
                       </p>
+                    )}
+
+                    {resolvedForkRepo && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="flex flex-col gap-3"
+                      >
+                        <div data-testid="card-resolved-fork-repo" className="flex items-center gap-3 p-4 rounded-lg border border-foreground/20 bg-foreground/[0.02]">
+                          <Github className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground">{resolvedForkRepo.full_name}</p>
+                            {resolvedForkRepo.description && (
+                              <p className="text-xs text-muted-foreground mt-0.5 truncate">{resolvedForkRepo.description}</p>
+                            )}
+                            <p className="text-xs text-muted-foreground mt-0.5">Default branch: {resolvedForkRepo.default_branch}</p>
+                          </div>
+                        </div>
+
+                        <button
+                          data-testid="button-fork-confirm"
+                          onClick={handleForkConfirm}
+                          disabled={forkRepo.isPending}
+                          className="flex items-center gap-2 px-6 py-3 rounded-lg bg-foreground text-background font-medium transition-opacity disabled:opacity-50 self-start"
+                        >
+                          {forkRepo.isPending ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <GitFork className="w-4 h-4" />
+                          )}
+                          Fork to my account & continue
+                        </button>
+                      </motion.div>
                     )}
                   </motion.div>
                 )}
