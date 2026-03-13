@@ -59,10 +59,16 @@ Preferred communication style: Simple, everyday language.
 
 ### Authentication Flow
 
-1. User clicks "Get Started" on landing page → navigates to `/onboard?name=<project_name>`
+1. Landing page (`/`) shows five path cards: Fresh, Replit, Claude Code, Existing GitHub, Fork. Clicking a card stores the chosen path in sessionStorage and triggers GitHub auth if not logged in, or navigates to `/onboard?path=<value>`.
 2. If not logged in → redirects to `/auth/github?redirect=/onboard` → GitHub OAuth → callback creates/updates user → redirects to stored `postAuthRedirect` session path (allowlisted: `/onboard`, `/dashboard`; default: `/dashboard`)
-3. Onboard wizard: 4-step flow (Name → Starting Point → AI Agents → Review & Launch) → creates project atomically via `POST /api/projects` → navigates to `/projects/:id`
-4. Dashboard "New Project" button → navigates to `/onboard`
+3. Onboard wizard reads `?path=` param (or sessionStorage fallback). Step flows vary by path:
+   - `fresh`: name → agents → review (3 steps)
+   - `replit`: repo → agents (Replit pre-selected) → name → review (4 steps)
+   - `claude_code`: repo → agents (Claude Code pre-selected) → name → review (4 steps)
+   - `existing`: repo → agents → name → review (4 steps)
+   - `fork`: fork URL → agents → name → review (4 steps)
+   - No path (from dashboard): shows path-card picker as step 1, then follows chosen path
+4. Dashboard "New Project" button → navigates to `/onboard` (no path param, shows picker)
 
 ### Platform Connections & GitHub Sync
 

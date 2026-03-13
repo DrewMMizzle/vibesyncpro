@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -11,7 +11,8 @@ import {
 } from "lucide-react";
 
 type Platform = "replit" | "claude_code" | "computer";
-type StartingPoint = "fresh" | "existing" | "fork";
+type EntryPath = "fresh" | "replit" | "claude_code" | "existing" | "fork";
+type StepId = "picker" | "repo" | "fork_url" | "agents" | "name" | "review";
 
 interface GitHubRepo {
   name: string;
@@ -43,6 +44,27 @@ const AI_BRANCH_PATTERNS: Record<Platform, RegExp[]> = {
   computer: [/^computer[-/]/i, /^local[-/]/i],
 };
 
+const PATH_CARDS: { id: EntryPath; icon: typeof Globe; title: string; desc: string }[] = [
+  { id: "fresh", icon: Sparkles, title: "Start a new project", desc: "I have an idea and want to begin from scratch" },
+  { id: "replit", icon: Globe, title: "Already building in Replit", desc: "I have a Replit project I want to sync" },
+  { id: "claude_code", icon: Bot, title: "Using Claude Code", desc: "I have a branch Claude Code is working on" },
+  { id: "existing", icon: Github, title: "I have a GitHub repo", desc: "Connect an existing repository" },
+  { id: "fork", icon: GitFork, title: "Fork a public repo", desc: "Copy someone else's repo and build on it" },
+];
+
+function getStepsForPath(path: EntryPath): StepId[] {
+  switch (path) {
+    case "fresh":
+      return ["name", "agents", "review"];
+    case "fork":
+      return ["fork_url", "agents", "name", "review"];
+    case "replit":
+    case "claude_code":
+    case "existing":
+      return ["repo", "agents", "name", "review"];
+  }
+}
+
 function suggestBranch(branches: GitHubBranch[], platform: Platform): string | null {
   for (const b of branches) {
     for (const pat of AI_BRANCH_PATTERNS[platform]) {
@@ -72,9 +94,9 @@ export default function OnboardPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
-  const [step, setStep] = useState(1);
+  const [entryPath, setEntryPath] = useState<EntryPath | null>(null);
+  const [stepIndex, setStepIndex] = useState(0);
   const [projectName, setProjectName] = useState("");
-  const [startingPoint, setStartingPoint] = useState<StartingPoint | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
   const [forkUrl, setForkUrl] = useState("");
   const [repoSearch, setRepoSearch] = useState("");
@@ -89,36 +111,60 @@ export default function OnboardPage() {
   const [isLaunching, setIsLaunching] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
+  const steps = useMemo<StepId[]>(() => {
+    if (!entryPath) return ["picker"];
+    return getStepsForPath(entryPath);
+  }, [entryPath]);
+
+  const currentStep = steps[stepIndex] ?? "picker";
+  const totalDots = steps.length;
+
   useEffect(() => {
     if (!authLoading && !isLoggedIn) {
-      window.location.href = `/auth/github?redirect=${encodeURIComponent("/onboard")}`;
+      const storedPath = sessionStorage.getItem("onboard_path");
+      const redirectUrl = storedPath
+        ? `/onboard?path=${storedPath}`
+        : "/onboard";
+      window.location.href = `/auth/github?redirect=${encodeURIComponent(redirectUrl)}`;
     }
   }, [authLoading, isLoggedIn]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const name = params.get("name");
-    if (name) {
-      setProjectName(name);
-      setStep(2);
-      return;
+    const pathParam = params.get("path") as EntryPath | null;
+    const storedPath = sessionStorage.getItem("onboard_path") as EntryPath | null;
+
+    const resolvedPath = pathParam || storedPath;
+    if (storedPath) sessionStorage.removeItem("onboard_path");
+
+    if (resolvedPath && ["fresh", "replit", "claude_code", "existing", "fork"].includes(resolvedPath)) {
+      setEntryPath(resolvedPath);
+      setStepIndex(0);
+
+      if (resolvedPath === "replit") {
+        setPlatforms((prev) => ({ ...prev, replit: { enabled: true, branch_name: null } }));
+      } else if (resolvedPath === "claude_code") {
+        setPlatforms((prev) => ({ ...prev, claude_code: { enabled: true, branch_name: null } }));
+      }
     }
-    const stored = sessionStorage.getItem("onboard_name");
-    if (stored) {
-      setProjectName(stored);
+
+    const name = params.get("name");
+    if (name) setProjectName(name);
+    const storedName = sessionStorage.getItem("onboard_name");
+    if (storedName) {
+      setProjectName(storedName);
       sessionStorage.removeItem("onboard_name");
-      setStep(2);
     }
   }, []);
 
   useEffect(() => {
-    if (step === 1 && nameInputRef.current) nameInputRef.current.focus();
-  }, [step]);
+    if (currentStep === "name" && nameInputRef.current) nameInputRef.current.focus();
+  }, [currentStep]);
 
   const { data: repos, isLoading: reposLoading } = useQuery<GitHubRepo[]>({
     queryKey: ["/api/github/repos"],
     queryFn: getQueryFn({ on401: "throw" }),
-    enabled: isLoggedIn && step === 2 && startingPoint === "existing",
+    enabled: isLoggedIn && currentStep === "repo" && !existingUrlMode,
   });
 
   const repoOwner = selectedRepo?.full_name?.split("/")[0];
@@ -127,7 +173,7 @@ export default function OnboardPage() {
   const { data: branches } = useQuery<GitHubBranch[]>({
     queryKey: ["/api/github/repos", repoOwner, repoName, "branches"],
     queryFn: getQueryFn({ on401: "throw" }),
-    enabled: !!selectedRepo && step === 3,
+    enabled: !!selectedRepo && currentStep === "agents",
   });
 
   const lookupPublicRepo = useMutation({
@@ -137,7 +183,7 @@ export default function OnboardPage() {
     },
   });
 
-  const forkRepo = useMutation({
+  const forkRepoMutation = useMutation({
     mutationFn: async (repoFullName: string) => {
       const res = await apiRequest("POST", `/api/github/fork`, { repo_full_name: repoFullName });
       return res.json() as Promise<GitHubRepo>;
@@ -148,20 +194,29 @@ export default function OnboardPage() {
     r.full_name.toLowerCase().includes(repoSearch.toLowerCase())
   ) ?? [];
 
-  const goNext = () => setStep((s) => s + 1);
-  const goBack = () => setStep((s) => s - 1);
+  const goNext = () => setStepIndex((s) => Math.min(s + 1, steps.length - 1));
+  const goBack = () => {
+    if (stepIndex === 0 && entryPath) {
+      setEntryPath(null);
+      setStepIndex(0);
+      return;
+    }
+    setStepIndex((s) => Math.max(s - 1, 0));
+  };
+
+  const handlePickPath = (path: EntryPath) => {
+    setEntryPath(path);
+    setStepIndex(0);
+    if (path === "replit") {
+      setPlatforms((prev) => ({ ...prev, replit: { enabled: true, branch_name: null } }));
+    } else if (path === "claude_code") {
+      setPlatforms((prev) => ({ ...prev, claude_code: { enabled: true, branch_name: null } }));
+    }
+  };
 
   const handleNameSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (projectName.trim()) goNext();
-  };
-
-  const handlePickStartingPoint = (sp: StartingPoint) => {
-    setStartingPoint(sp);
-    if (sp === "fresh") {
-      setSelectedRepo(null);
-      setStep(3);
-    }
   };
 
   const handleSelectRepo = (repo: GitHubRepo) => {
@@ -199,7 +254,7 @@ export default function OnboardPage() {
   const handleForkConfirm = async () => {
     if (!resolvedForkRepo) return;
     try {
-      const forked = await forkRepo.mutateAsync(resolvedForkRepo.full_name);
+      const forked = await forkRepoMutation.mutateAsync(resolvedForkRepo.full_name);
       setSelectedRepo(forked);
       toast({ title: "Forked!", description: `${resolvedForkRepo.full_name} forked to your account` });
       goNext();
@@ -272,30 +327,82 @@ export default function OnboardPage() {
 
   const enabledPlatforms = (Object.entries(platforms) as [Platform, PlatformSetup][]).filter(([, v]) => v.enabled);
 
+  const pathNote = entryPath === "replit"
+    ? "Replit Agent has been pre-selected below. Toggle others if needed."
+    : entryPath === "claude_code"
+      ? "Claude Code has been pre-selected below. Toggle others if needed."
+      : null;
+
   return (
     <div className="min-h-screen w-full flex flex-col bg-background">
       <header className="absolute top-0 left-0 right-0 p-6 sm:p-8 z-10 flex items-center justify-between">
         <span data-testid="text-wordmark" className="text-sm font-medium tracking-wide text-muted-foreground/50 select-none">
           VibeSyncPro
         </span>
-        <div className="flex items-center gap-1">
-          {[1, 2, 3, 4].map((s) => (
-            <div
-              key={s}
-              data-testid={`indicator-step-${s}`}
-              className={`w-2 h-2 rounded-full transition-colors ${s === step ? "bg-foreground" : s < step ? "bg-foreground/40" : "bg-muted-foreground/20"}`}
-            />
-          ))}
-        </div>
+        {entryPath && (
+          <div className="flex items-center gap-1">
+            {Array.from({ length: totalDots }, (_, i) => (
+              <div
+                key={i}
+                data-testid={`indicator-step-${i + 1}`}
+                className={`w-2 h-2 rounded-full transition-colors ${i === stepIndex ? "bg-foreground" : i < stepIndex ? "bg-foreground/40" : "bg-muted-foreground/20"}`}
+              />
+            ))}
+          </div>
+        )}
       </header>
 
       <main className="min-h-screen w-full flex items-center justify-center p-6 sm:p-12" style={{ paddingBottom: "10vh" }}>
         <div className="w-full max-w-2xl mx-auto">
           <AnimatePresence mode="wait">
-            {/* STEP 1: Name */}
-            {step === 1 && (
+            {/* PICKER — choose your path */}
+            {currentStep === "picker" && (
+              <motion.div
+                key="picker"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20, filter: "blur(4px)" }}
+                transition={transition}
+                className="flex flex-col gap-8"
+              >
+                <motion.h1
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.2, duration: 0.5 }}
+                  data-testid="text-heading-picker"
+                  className="text-4xl sm:text-5xl md:text-6xl font-light text-muted-foreground/40 tracking-tight"
+                >
+                  How are you building?
+                </motion.h1>
+
+                <div className="grid gap-3">
+                  {PATH_CARDS.map((card, i) => (
+                    <motion.button
+                      key={card.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.3 + i * 0.06, duration: 0.4 }}
+                      data-testid={`button-path-${card.id}`}
+                      onClick={() => handlePickPath(card.id)}
+                      className="flex items-center gap-4 p-5 rounded-lg border border-border hover:border-foreground/30 hover:shadow-sm transition-all text-left group"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-foreground/5 flex items-center justify-center flex-shrink-0 group-hover:bg-foreground/10 transition-colors">
+                        <card.icon className="w-5 h-5 text-foreground/60" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-foreground">{card.title}</p>
+                        <p className="text-sm text-muted-foreground">{card.desc}</p>
+                      </div>
+                    </motion.button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
+            {/* NAME step */}
+            {currentStep === "name" && (
               <motion.form
-                key="step1"
+                key="name"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20, filter: "blur(4px)" }}
@@ -303,15 +410,20 @@ export default function OnboardPage() {
                 onSubmit={handleNameSubmit}
                 className="flex flex-col gap-10"
               >
-                <motion.h1
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.2, duration: 0.5 }}
-                  data-testid="text-heading-step1"
-                  className="text-4xl sm:text-5xl md:text-6xl font-light text-muted-foreground/40 tracking-tight"
-                >
-                  What are you building?
-                </motion.h1>
+                <div>
+                  <button
+                    type="button"
+                    data-testid="button-back-name"
+                    onClick={goBack}
+                    className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    Back
+                  </button>
+                  <h1 data-testid="text-heading-name" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
+                    What are you calling it?
+                  </h1>
+                </div>
 
                 <input
                   ref={nameInputRef}
@@ -325,28 +437,26 @@ export default function OnboardPage() {
                   spellCheck="false"
                 />
 
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4, duration: 0.5 }}>
-                  <button
-                    type="submit"
-                    data-testid="button-next-step1"
-                    disabled={!projectName.trim()}
-                    className={`group flex items-center gap-3 px-8 py-4 rounded-full text-base font-medium transition-all duration-300 ease-out ${
-                      projectName.trim()
-                        ? "bg-foreground text-background shadow-lg cursor-pointer"
-                        : "bg-muted-foreground/15 text-muted-foreground/40 cursor-not-allowed"
-                    }`}
-                  >
-                    Continue
-                    <ArrowRight className={`w-5 h-5 transition-transform duration-300 ${projectName.trim() ? "group-hover:translate-x-1" : ""}`} />
-                  </button>
-                </motion.div>
+                <button
+                  type="submit"
+                  data-testid="button-next-name"
+                  disabled={!projectName.trim()}
+                  className={`group flex items-center gap-3 px-8 py-4 rounded-full text-base font-medium transition-all duration-300 ease-out self-start ${
+                    projectName.trim()
+                      ? "bg-foreground text-background shadow-lg cursor-pointer"
+                      : "bg-muted-foreground/15 text-muted-foreground/40 cursor-not-allowed"
+                  }`}
+                >
+                  Continue
+                  <ArrowRight className={`w-5 h-5 transition-transform duration-300 ${projectName.trim() ? "group-hover:translate-x-1" : ""}`} />
+                </button>
               </motion.form>
             )}
 
-            {/* STEP 2: Starting Point */}
-            {step === 2 && (
+            {/* REPO step */}
+            {currentStep === "repo" && (
               <motion.div
-                key="step2"
+                key="repo"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20, filter: "blur(4px)" }}
@@ -355,246 +465,117 @@ export default function OnboardPage() {
               >
                 <div>
                   <button
-                    data-testid="button-back-step2"
+                    data-testid="button-back-repo"
                     onClick={goBack}
                     className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
                   >
                     <ArrowLeft className="w-4 h-4" />
                     Back
                   </button>
-                  <h1 data-testid="text-heading-step2" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
-                    Where's your code?
+                  <h1 data-testid="text-heading-repo" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
+                    Which repo?
                   </h1>
                 </div>
 
-                {!startingPoint && (
-                  <div className="grid gap-4">
-                    {([
-                      { id: "fresh" as StartingPoint, icon: Sparkles, title: "Starting fresh", desc: "I'll set up a repo later" },
-                      { id: "existing" as StartingPoint, icon: Github, title: "I have a GitHub repo", desc: "Connect an existing repository" },
-                      { id: "fork" as StartingPoint, icon: GitFork, title: "Fork a public repo", desc: "Copy someone else's repo and build on it" },
-                    ]).map((option) => (
-                      <button
-                        key={option.id}
-                        data-testid={`button-start-${option.id}`}
-                        onClick={() => handlePickStartingPoint(option.id)}
-                        className="flex items-center gap-4 p-5 rounded-lg border border-border hover:border-foreground/30 hover:shadow-sm transition-all text-left group"
-                      >
-                        <div className="w-10 h-10 rounded-full bg-foreground/5 flex items-center justify-center flex-shrink-0 group-hover:bg-foreground/10 transition-colors">
-                          <option.icon className="w-5 h-5 text-foreground/60" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-foreground">{option.title}</p>
-                          <p className="text-sm text-muted-foreground">{option.desc}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {startingPoint === "existing" && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex flex-col gap-4"
+                <div className="flex gap-2 mb-1">
+                  <button
+                    data-testid="button-existing-picker"
+                    onClick={() => { setExistingUrlMode(false); lookupPublicRepo.reset(); }}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${!existingUrlMode ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground"}`}
                   >
-                    <button
-                      data-testid="button-back-starting-point"
-                      onClick={() => { setStartingPoint(null); setExistingUrlMode(false); setExistingRepoUrl(""); lookupPublicRepo.reset(); }}
-                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors self-start"
-                    >
-                      <ArrowLeft className="w-3 h-3" />
-                      Choose differently
-                    </button>
+                    My repos
+                  </button>
+                  <button
+                    data-testid="button-existing-url"
+                    onClick={() => setExistingUrlMode(true)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${existingUrlMode ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground"}`}
+                  >
+                    Paste URL
+                  </button>
+                </div>
 
-                    <div className="flex gap-2 mb-1">
-                      <button
-                        data-testid="button-existing-picker"
-                        onClick={() => { setExistingUrlMode(false); lookupPublicRepo.reset(); }}
-                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${!existingUrlMode ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground"}`}
-                      >
-                        My repos
-                      </button>
-                      <button
-                        data-testid="button-existing-url"
-                        onClick={() => setExistingUrlMode(true)}
-                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${existingUrlMode ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground"}`}
-                      >
-                        Paste URL
-                      </button>
+                {!existingUrlMode ? (
+                  <div className="flex flex-col gap-4">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
+                      <input
+                        data-testid="input-repo-search"
+                        type="text"
+                        value={repoSearch}
+                        onChange={(e) => setRepoSearch(e.target.value)}
+                        placeholder="Search your repos..."
+                        className="w-full pl-10 pr-4 py-3 rounded-lg border border-border bg-transparent text-foreground placeholder:text-muted-foreground/40 focus:border-foreground focus:outline-none transition-colors"
+                      />
                     </div>
 
-                    {!existingUrlMode ? (
-                      <>
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
-                          <input
-                            data-testid="input-repo-search"
-                            type="text"
-                            value={repoSearch}
-                            onChange={(e) => setRepoSearch(e.target.value)}
-                            placeholder="Search your repos..."
-                            className="w-full pl-10 pr-4 py-3 rounded-lg border border-border bg-transparent text-foreground placeholder:text-muted-foreground/40 focus:border-foreground focus:outline-none transition-colors"
-                          />
+                    <div className="max-h-72 overflow-y-auto rounded-lg border border-border divide-y divide-border">
+                      {reposLoading ? (
+                        <div className="flex items-center justify-center py-8">
+                          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
                         </div>
-
-                        <div className="max-h-72 overflow-y-auto rounded-lg border border-border divide-y divide-border">
-                          {reposLoading ? (
-                            <div className="flex items-center justify-center py-8">
-                              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                            </div>
-                          ) : filteredRepos.length === 0 ? (
-                            <p className="text-sm text-muted-foreground text-center py-6">No repos found</p>
-                          ) : (
-                            filteredRepos.map((repo) => (
-                              <button
-                                key={repo.full_name}
-                                data-testid={`button-repo-${repo.full_name}`}
-                                onClick={() => handleSelectRepo(repo)}
-                                className="w-full flex items-center gap-3 p-3 hover:bg-muted/50 transition-colors text-left"
-                              >
-                                <Github className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                                <div className="min-w-0">
-                                  <p className="text-sm font-medium text-foreground truncate">{repo.full_name}</p>
-                                  <p className="text-xs text-muted-foreground">{repo.default_branch}</p>
-                                </div>
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-sm text-muted-foreground">
-                          Paste a GitHub repository URL to connect it.
-                        </p>
-                        <div className="flex gap-2">
-                          <input
-                            data-testid="input-existing-repo-url"
-                            type="text"
-                            value={existingRepoUrl}
-                            onChange={(e) => setExistingRepoUrl(e.target.value)}
-                            onBlur={() => { if (existingRepoUrl.trim()) handleExistingUrlResolve(); }}
-                            placeholder="https://github.com/owner/repo"
-                            className="flex-1 px-4 py-3 rounded-lg border border-border bg-transparent text-foreground placeholder:text-muted-foreground/40 focus:border-foreground focus:outline-none transition-colors"
-                          />
+                      ) : filteredRepos.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-6">No repos found</p>
+                      ) : (
+                        filteredRepos.map((repo) => (
                           <button
-                            data-testid="button-existing-url-resolve"
-                            onClick={handleExistingUrlResolve}
-                            disabled={!existingRepoUrl.trim() || lookupPublicRepo.isPending}
-                            className="flex items-center gap-2 px-5 py-3 rounded-lg bg-foreground text-background font-medium transition-opacity disabled:opacity-40"
+                            key={repo.full_name}
+                            data-testid={`button-repo-${repo.full_name}`}
+                            onClick={() => handleSelectRepo(repo)}
+                            className="w-full flex items-center gap-3 p-3 hover:bg-muted/50 transition-colors text-left"
                           >
-                            {lookupPublicRepo.isPending ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <ArrowRight className="w-4 h-4" />
-                            )}
-                            Connect
+                            <Github className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-foreground truncate">{repo.full_name}</p>
+                              <p className="text-xs text-muted-foreground">{repo.default_branch}</p>
+                            </div>
                           </button>
-                        </div>
-                        {lookupPublicRepo.isError && (
-                          <p data-testid="text-existing-url-error" className="text-sm text-red-500">
-                            {lookupPublicRepo.error instanceof Error ? lookupPublicRepo.error.message : "Couldn't find that repo"}
-                          </p>
-                        )}
-                      </>
-                    )}
-                  </motion.div>
-                )}
-
-                {startingPoint === "fork" && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex flex-col gap-4"
-                  >
-                    <button
-                      data-testid="button-back-starting-point-fork"
-                      onClick={() => { setStartingPoint(null); setForkUrl(""); setResolvedForkRepo(null); lookupPublicRepo.reset(); }}
-                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors self-start"
-                    >
-                      <ArrowLeft className="w-3 h-3" />
-                      Choose differently
-                    </button>
-
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-4">
                     <p className="text-sm text-muted-foreground">
-                      Paste a public GitHub URL — we'll fork it to your account so your AI agents can work on it.
+                      Paste a GitHub repository URL to connect it.
                     </p>
-
                     <div className="flex gap-2">
                       <input
-                        data-testid="input-fork-url"
+                        data-testid="input-existing-repo-url"
                         type="text"
-                        value={forkUrl}
-                        onChange={(e) => { setForkUrl(e.target.value); setResolvedForkRepo(null); }}
-                        onBlur={() => { if (forkUrl.trim() && !resolvedForkRepo) handleForkUrlResolve(); }}
+                        value={existingRepoUrl}
+                        onChange={(e) => setExistingRepoUrl(e.target.value)}
+                        onBlur={() => { if (existingRepoUrl.trim()) handleExistingUrlResolve(); }}
                         placeholder="https://github.com/owner/repo"
                         className="flex-1 px-4 py-3 rounded-lg border border-border bg-transparent text-foreground placeholder:text-muted-foreground/40 focus:border-foreground focus:outline-none transition-colors"
                       />
-                      {!resolvedForkRepo && (
-                        <button
-                          data-testid="button-fork-lookup"
-                          onClick={handleForkUrlResolve}
-                          disabled={!forkUrl.trim() || lookupPublicRepo.isPending}
-                          className="flex items-center gap-2 px-5 py-3 rounded-lg bg-muted text-foreground font-medium transition-opacity disabled:opacity-40"
-                        >
-                          {lookupPublicRepo.isPending ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Search className="w-4 h-4" />
-                          )}
-                          Look up
-                        </button>
-                      )}
+                      <button
+                        data-testid="button-existing-url-resolve"
+                        onClick={handleExistingUrlResolve}
+                        disabled={!existingRepoUrl.trim() || lookupPublicRepo.isPending}
+                        className="flex items-center gap-2 px-5 py-3 rounded-lg bg-foreground text-background font-medium transition-opacity disabled:opacity-40"
+                      >
+                        {lookupPublicRepo.isPending ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <ArrowRight className="w-4 h-4" />
+                        )}
+                        Connect
+                      </button>
                     </div>
-
                     {lookupPublicRepo.isError && (
-                      <p data-testid="text-fork-error" className="text-sm text-red-500">
+                      <p data-testid="text-existing-url-error" className="text-sm text-red-500">
                         {lookupPublicRepo.error instanceof Error ? lookupPublicRepo.error.message : "Couldn't find that repo"}
                       </p>
                     )}
-
-                    {resolvedForkRepo && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 5 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="flex flex-col gap-3"
-                      >
-                        <div data-testid="card-resolved-fork-repo" className="flex items-center gap-3 p-4 rounded-lg border border-foreground/20 bg-foreground/[0.02]">
-                          <Github className="w-5 h-5 text-muted-foreground flex-shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-foreground">{resolvedForkRepo.full_name}</p>
-                            {resolvedForkRepo.description && (
-                              <p className="text-xs text-muted-foreground mt-0.5 truncate">{resolvedForkRepo.description}</p>
-                            )}
-                            <p className="text-xs text-muted-foreground mt-0.5">Default branch: {resolvedForkRepo.default_branch}</p>
-                          </div>
-                        </div>
-
-                        <button
-                          data-testid="button-fork-confirm"
-                          onClick={handleForkConfirm}
-                          disabled={forkRepo.isPending}
-                          className="flex items-center gap-2 px-6 py-3 rounded-lg bg-foreground text-background font-medium transition-opacity disabled:opacity-50 self-start"
-                        >
-                          {forkRepo.isPending ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <GitFork className="w-4 h-4" />
-                          )}
-                          Fork to my account & continue
-                        </button>
-                      </motion.div>
-                    )}
-                  </motion.div>
+                  </div>
                 )}
               </motion.div>
             )}
 
-            {/* STEP 3: Platform Agents */}
-            {step === 3 && (
+            {/* FORK_URL step */}
+            {currentStep === "fork_url" && (
               <motion.div
-                key="step3"
+                key="fork_url"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20, filter: "blur(4px)" }}
@@ -603,26 +584,118 @@ export default function OnboardPage() {
               >
                 <div>
                   <button
-                    data-testid="button-back-step3"
-                    onClick={() => {
-                      if (startingPoint === "fresh") {
-                        setStartingPoint(null);
-                        setStep(2);
-                      } else {
-                        goBack();
-                      }
-                    }}
+                    data-testid="button-back-fork"
+                    onClick={goBack}
                     className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
                   >
                     <ArrowLeft className="w-4 h-4" />
                     Back
                   </button>
-                  <h1 data-testid="text-heading-step3" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
+                  <h1 data-testid="text-heading-fork" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
+                    Fork a public repo
+                  </h1>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Paste a public GitHub URL — we'll fork it to your account so your AI agents can work on it.
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    data-testid="input-fork-url"
+                    type="text"
+                    value={forkUrl}
+                    onChange={(e) => { setForkUrl(e.target.value); setResolvedForkRepo(null); }}
+                    onBlur={() => { if (forkUrl.trim() && !resolvedForkRepo) handleForkUrlResolve(); }}
+                    placeholder="https://github.com/owner/repo"
+                    className="flex-1 px-4 py-3 rounded-lg border border-border bg-transparent text-foreground placeholder:text-muted-foreground/40 focus:border-foreground focus:outline-none transition-colors"
+                  />
+                  {!resolvedForkRepo && (
+                    <button
+                      data-testid="button-fork-lookup"
+                      onClick={handleForkUrlResolve}
+                      disabled={!forkUrl.trim() || lookupPublicRepo.isPending}
+                      className="flex items-center gap-2 px-5 py-3 rounded-lg bg-muted text-foreground font-medium transition-opacity disabled:opacity-40"
+                    >
+                      {lookupPublicRepo.isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Search className="w-4 h-4" />
+                      )}
+                      Look up
+                    </button>
+                  )}
+                </div>
+
+                {lookupPublicRepo.isError && (
+                  <p data-testid="text-fork-error" className="text-sm text-red-500">
+                    {lookupPublicRepo.error instanceof Error ? lookupPublicRepo.error.message : "Couldn't find that repo"}
+                  </p>
+                )}
+
+                {resolvedForkRepo && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex flex-col gap-3"
+                  >
+                    <div data-testid="card-resolved-fork-repo" className="flex items-center gap-3 p-4 rounded-lg border border-foreground/20 bg-foreground/[0.02]">
+                      <Github className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground">{resolvedForkRepo.full_name}</p>
+                        {resolvedForkRepo.description && (
+                          <p className="text-xs text-muted-foreground mt-0.5 truncate">{resolvedForkRepo.description}</p>
+                        )}
+                        <p className="text-xs text-muted-foreground mt-0.5">Default branch: {resolvedForkRepo.default_branch}</p>
+                      </div>
+                    </div>
+
+                    <button
+                      data-testid="button-fork-confirm"
+                      onClick={handleForkConfirm}
+                      disabled={forkRepoMutation.isPending}
+                      className="flex items-center gap-2 px-6 py-3 rounded-lg bg-foreground text-background font-medium transition-opacity disabled:opacity-50 self-start"
+                    >
+                      {forkRepoMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <GitFork className="w-4 h-4" />
+                      )}
+                      Fork to my account & continue
+                    </button>
+                  </motion.div>
+                )}
+              </motion.div>
+            )}
+
+            {/* AGENTS step */}
+            {currentStep === "agents" && (
+              <motion.div
+                key="agents"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20, filter: "blur(4px)" }}
+                transition={transition}
+                className="flex flex-col gap-8"
+              >
+                <div>
+                  <button
+                    data-testid="button-back-agents"
+                    onClick={goBack}
+                    className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    Back
+                  </button>
+                  <h1 data-testid="text-heading-agents" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
                     Who's working on it?
                   </h1>
                   <p className="text-sm text-muted-foreground mt-2">
-                    Toggle which AI platforms are active on this project and pick their branches.
-                    {!selectedRepo && " (You can add these later after linking a repo.)"}
+                    {pathNote || (
+                      <>
+                        Toggle which AI platforms are active on this project and pick their branches.
+                        {!selectedRepo && " (You can add these later after linking a repo.)"}
+                      </>
+                    )}
                   </p>
                 </div>
 
@@ -693,20 +766,20 @@ export default function OnboardPage() {
                 </div>
 
                 <button
-                  data-testid="button-next-step3"
+                  data-testid="button-next-agents"
                   onClick={goNext}
                   className="group flex items-center gap-3 px-8 py-4 rounded-full text-base font-medium bg-foreground text-background shadow-lg cursor-pointer transition-all duration-300 ease-out self-start"
                 >
-                  Review & Launch
+                  Continue
                   <ArrowRight className="w-5 h-5 transition-transform duration-300 group-hover:translate-x-1" />
                 </button>
               </motion.div>
             )}
 
-            {/* STEP 4: Summary & Launch */}
-            {step === 4 && (
+            {/* REVIEW step */}
+            {currentStep === "review" && (
               <motion.div
-                key="step4"
+                key="review"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20, filter: "blur(4px)" }}
@@ -715,14 +788,14 @@ export default function OnboardPage() {
               >
                 <div>
                   <button
-                    data-testid="button-back-step4"
+                    data-testid="button-back-review"
                     onClick={goBack}
                     className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
                   >
                     <ArrowLeft className="w-4 h-4" />
                     Back
                   </button>
-                  <h1 data-testid="text-heading-step4" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
+                  <h1 data-testid="text-heading-review" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
                     Ready to launch
                   </h1>
                 </div>
@@ -730,7 +803,7 @@ export default function OnboardPage() {
                 <div className="rounded-lg border border-border divide-y divide-border">
                   <div className="p-5">
                     <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Project</p>
-                    <p data-testid="text-summary-name" className="text-lg font-medium text-foreground">{projectName}</p>
+                    <p data-testid="text-summary-name" className="text-lg font-medium text-foreground">{projectName || <span className="text-muted-foreground italic">Not named yet</span>}</p>
                   </div>
 
                   <div className="p-5">
@@ -772,10 +845,16 @@ export default function OnboardPage() {
                   </div>
                 </div>
 
+                {!projectName.trim() && (
+                  <p data-testid="text-name-required" className="text-sm text-red-500">
+                    Please go back and enter a project name before launching.
+                  </p>
+                )}
+
                 <button
                   data-testid="button-launch"
                   onClick={handleLaunch}
-                  disabled={isLaunching}
+                  disabled={isLaunching || !projectName.trim()}
                   className="group flex items-center gap-3 px-8 py-4 rounded-full text-base font-medium bg-foreground text-background shadow-lg cursor-pointer transition-all duration-300 ease-out self-start disabled:opacity-50"
                 >
                   {isLaunching ? (
