@@ -3,13 +3,13 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/requireAuth";
 import { storage } from "../../storage";
 import { githubFetch, getAccessToken } from "./github";
+import type { Project, PlatformConnection } from "@shared/schema";
 
 const router = Router();
 
 const VALID_PLATFORMS = ["replit", "claude_code", "computer"] as const;
-const VALID_STATUSES = ["disconnected", "connected", "synced", "drifted", "conflict"] as const;
 
-function formatProject(project: any, connections: any[]) {
+function formatProject(project: Project, connections: PlatformConnection[]) {
   return {
     id: project.id,
     name: project.name,
@@ -104,7 +104,7 @@ router.post("/:id/sync", requireAuth, async (req, res) => {
   let token: string;
   try {
     token = await getAccessToken(req.session.userId!);
-  } catch (err: any) {
+  } catch {
     return res.status(401).json({ message: "GitHub access token not found. Please re-authenticate." });
   }
 
@@ -115,7 +115,7 @@ router.post("/:id/sync", requireAuth, async (req, res) => {
   try {
     const repoInfo = await githubFetch(token, `/repos/${owner}/${repo}`) as { default_branch: string };
     defaultBranch = repoInfo.default_branch;
-  } catch (err: any) {
+  } catch {
     return res.status(502).json({ message: "Failed to fetch repository info from GitHub" });
   }
 
@@ -162,9 +162,10 @@ router.post("/:id/sync", requireAuth, async (req, res) => {
         ahead_by: comparison.ahead_by,
         behind_by: comparison.behind_by,
       });
-    } catch (err: any) {
-      console.error(`Sync error for connection ${conn.id}:`, err.message);
-      errors.push({ id: conn.id, platform: conn.platform, error: err.message });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      console.error(`Sync error for connection ${conn.id}:`, errorMessage);
+      errors.push({ id: conn.id, platform: conn.platform, error: errorMessage });
       results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: conn.status, last_synced_at: conn.last_synced_at?.toISOString() ?? null });
     }
   }
@@ -190,7 +191,10 @@ router.post("/:id/connections", requireAuth, async (req, res) => {
 
   const { platform, branch_name } = parsed.data;
 
-  // Only one connection per platform per project
+  if (project.github_repo_name && !branch_name) {
+    return res.status(400).json({ message: "Branch name is required when a GitHub repo is linked" });
+  }
+
   const existing = await storage.getConnectionsByProject(projectId);
   if (existing.some((c) => c.platform === platform)) {
     return res.status(409).json({ message: `A ${platform} connection already exists for this project` });

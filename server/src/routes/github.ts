@@ -47,8 +47,9 @@ router.get("/repos", requireAuth, async (req, res) => {
         private: r.private,
       }))
     );
-  } catch (err: any) {
-    console.error("GitHub repos error:", err.message);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("GitHub repos error:", message);
     return res.status(502).json({ message: "Failed to fetch repos from GitHub" });
   }
 });
@@ -63,8 +64,9 @@ router.get("/repos/:owner/:repo/branches", requireAuth, async (req, res) => {
     ) as Array<{ name: string }>;
 
     return res.json(branches.map((b) => ({ name: b.name })));
-  } catch (err: any) {
-    console.error("GitHub branches error:", err.message);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("GitHub branches error:", message);
     return res.status(502).json({ message: "Failed to fetch branches from GitHub" });
   }
 });
