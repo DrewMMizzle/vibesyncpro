@@ -162,6 +162,8 @@ export default function ProjectPage() {
   const [editingDesc, setEditingDesc] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
+  const [defaultBranch, setDefaultBranch] = useState<string | null>(null);
+  const [launchBanner, setLaunchBanner] = useState(false);
   const { toast } = useToast();
 
   const projectId = params?.id ? parseInt(params.id, 10) : null;
@@ -191,6 +193,14 @@ export default function ProjectPage() {
     if (!authLoading && !isLoggedIn) navigate("/");
   }, [authLoading, isLoggedIn, navigate]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("launched") === "1") {
+      setLaunchBanner(true);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
   const linkRepo = useMutation({
     mutationFn: async (repoData: GitHubRepo) => {
       const res = await apiRequest("PATCH", `/api/projects/${projectId}`, {
@@ -199,11 +209,11 @@ export default function ProjectPage() {
       });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_data, repoData) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
       setShowRepoModal(false);
-      toast({ title: "Repository linked" });
+      toast({ title: `Linked ${repoData.full_name}`, description: "AI agents will sync against this repository" });
     },
     onError: (err: Error) => {
       toast({ title: "Failed to link repo", description: err.message, variant: "destructive" });
@@ -212,16 +222,18 @@ export default function ProjectPage() {
 
   const unlinkRepo = useMutation({
     mutationFn: async () => {
+      const repoNameBeforeUnlink = project?.github_repo_name ?? "repository";
       const res = await apiRequest("PATCH", `/api/projects/${projectId}`, {
         github_repo_url: null,
         github_repo_name: null,
       });
-      return res.json();
+      const json = await res.json();
+      return { ...json, _unlinkedName: repoNameBeforeUnlink };
     },
-    onSuccess: () => {
+    onSuccess: (data: { _unlinkedName: string }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
-      toast({ title: "Repository unlinked" });
+      toast({ title: `${data._unlinkedName} removed`, description: "Syncing is paused until you link a new repo" });
     },
     onError: (err: Error) => {
       toast({ title: "Failed to unlink repo", description: err.message, variant: "destructive" });
@@ -262,14 +274,34 @@ export default function ProjectPage() {
       const res = await apiRequest("POST", `/api/projects/${projectId}/sync`);
       return res.json();
     },
-    onSuccess: (data: { synced: boolean; errors?: Array<{ platform: string; error: string }> }) => {
+    onSuccess: (data: {
+      synced: boolean;
+      errors?: Array<{ platform: string; error: string }>;
+      connections?: Array<{ platform: string; branch_name: string | null; status: string; ahead_by?: number; behind_by?: number }>;
+      default_branch?: string;
+    }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "branches", "discovered"] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "activity"] });
+      if (data.default_branch) setDefaultBranch(data.default_branch);
       if (data.synced) {
-        toast({ title: "Sync complete", description: "All branch statuses updated" });
+        const lines = (data.connections ?? []).map((c) => {
+          const label = PLATFORM_LABELS[c.platform as Platform] ?? c.platform;
+          if (c.status === "synced") return `${label} is in sync.`;
+          if (c.status === "drifted" && c.ahead_by && c.ahead_by > 0)
+            return `${label} is ${c.ahead_by} ${c.ahead_by === 1 ? "commit" : "commits"} ahead on \`${c.branch_name}\`.`;
+          if (c.status === "drifted" && c.behind_by && c.behind_by > 0)
+            return `${label} is ${c.behind_by} ${c.behind_by === 1 ? "commit" : "commits"} behind on \`${c.branch_name}\`.`;
+          if (c.status === "conflict")
+            return `${label} has conflicting changes on \`${c.branch_name}\`.`;
+          return `${label}: ${c.status}.`;
+        });
+        toast({ title: "Sync complete", description: lines.join(" ") || "All branch statuses updated" });
       } else {
-        const failedPlatforms = data.errors?.map((e) => e.platform).join(", ") ?? "unknown";
+        const failedPlatforms = data.errors?.map((e) => {
+          const label = PLATFORM_LABELS[e.platform as Platform] ?? e.platform;
+          return label;
+        }).join(", ") ?? "unknown";
         toast({ title: "Partial sync", description: `Some platforms failed to sync: ${failedPlatforms}`, variant: "destructive" });
       }
     },
@@ -330,11 +362,17 @@ export default function ProjectPage() {
       }
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "activity"] });
       syncStatus.mutate();
-      toast({ title: "Resolved", description: "Branches merged successfully" });
+      const conn = project?.platform_connections.find((c) => c.id === variables.connId);
+      const branchLabel = conn?.branch_name ? `\`${conn.branch_name}\`` : "branch";
+      const defaultLabel = defaultBranch ? `\`${defaultBranch}\`` : "default branch";
+      const desc = variables.action === "merge_to_default"
+        ? `Merged ${branchLabel} into ${defaultLabel} successfully`
+        : `${branchLabel} updated from ${defaultLabel} successfully`;
+      toast({ title: "Resolved", description: desc });
       setConflictInfo(null);
     },
     onError: (err: Error & { conflict_url?: string }, variables) => {
@@ -385,9 +423,15 @@ export default function ProjectPage() {
       const res = await apiRequest("POST", `/api/projects/${projectId}/branches/scan`);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: { discovered_branches?: Array<{ branch_name: string }> }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "branches", "discovered"] });
-      toast({ title: "Scan complete", description: "Branch scan finished" });
+      const found = data.discovered_branches ?? [];
+      if (found.length === 0) {
+        toast({ title: "Scan complete", description: "No new branches found" });
+      } else {
+        const names = found.map((b) => b.branch_name).join(", ");
+        toast({ title: "Scan complete", description: `Found ${found.length} untracked ${found.length === 1 ? "branch" : "branches"}: ${names}` });
+      }
     },
     onError: (err: Error) => {
       toast({ title: "Scan failed", description: err.message, variant: "destructive" });
@@ -413,11 +457,29 @@ export default function ProjectPage() {
       }
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "branches", "discovered"] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "activity"] });
-      toast({ title: "Done", description: "Action completed successfully" });
+      const defaultLabel = defaultBranch ? `\`${defaultBranch}\`` : "default branch";
+      let desc: string;
+      switch (variables.action) {
+        case "merge_to_default":
+          desc = `Merged \`${variables.branchName}\` into ${defaultLabel}`;
+          break;
+        case "merge_to_platform":
+          desc = `Merged \`${variables.branchName}\` into \`${variables.platform_branch ?? "platform branch"}\``;
+          break;
+        case "assign_to_replit":
+          desc = `Assigned \`${variables.branchName}\` to Replit Agent`;
+          break;
+        case "dismiss":
+          desc = `Dismissed \`${variables.branchName}\` — it will resurface if new commits appear`;
+          break;
+        default:
+          desc = "Action completed successfully";
+      }
+      toast({ title: "Done", description: desc });
       setTriageConflictInfo(null);
       scanBranches.mutate();
     },
@@ -477,6 +539,43 @@ export default function ProjectPage() {
       </header>
 
       <main className="max-w-3xl mx-auto px-6 sm:px-8 py-12">
+        <AnimatePresence>
+          {launchBanner && project && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+              transition={{ duration: 0.3 }}
+              data-testid="banner-launch"
+              className="mb-8 p-5 rounded-lg border border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/30"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <Rocket className="w-5 h-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p data-testid="text-launch-title" className="font-medium text-green-800 dark:text-green-300">
+                      {project.name} is ready to go
+                    </p>
+                    <p data-testid="text-launch-details" className="text-sm text-green-700/80 dark:text-green-400/70 mt-1">
+                      {project.github_repo_name ? `Linked to ${project.github_repo_name}` : "No repo linked yet"}
+                      {project.platform_connections.length > 0
+                        ? ` · ${project.platform_connections.map((c) => PLATFORM_LABELS[c.platform]).join(", ")} connected`
+                        : " · No agents connected yet"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  data-testid="button-dismiss-launch"
+                  onClick={() => setLaunchBanner(false)}
+                  className="text-green-600/60 hover:text-green-700 dark:text-green-400/60 dark:hover:text-green-300 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
