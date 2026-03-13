@@ -44,12 +44,84 @@ router.get("/", requireAuth, async (req, res) => {
 
 // POST /api/projects
 router.post("/", requireAuth, async (req, res) => {
-  const { name, description } = req.body;
-  if (!name || typeof name !== "string" || name.trim().length === 0) {
-    return res.status(400).json({ message: "Project name is required" });
+  const bodySchema = z.object({
+    name: z.string().trim().min(1, "Project name is required"),
+    description: z.string().optional().nullable(),
+    github_repo_url: z.string().optional().nullable(),
+    github_repo_name: z.string().optional().nullable(),
+    connections: z.array(z.object({
+      platform: z.enum(VALID_PLATFORMS),
+      branch_name: z.string().nullable(),
+    })).optional(),
+  });
+  const parsed = bodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    const firstError = parsed.error.issues[0];
+    return res.status(400).json({ message: firstError?.message || "Invalid input" });
   }
+
+  const { name, description, github_repo_url, github_repo_name, connections: connInputs } = parsed.data;
+
   const project = await storage.createProject(req.session.userId!, name.trim(), description?.trim() || null);
-  return res.status(201).json(formatProject(project, []));
+
+  if (github_repo_name || github_repo_url) {
+    await storage.updateProject(project.id, {
+      github_repo_url: github_repo_url ?? null,
+      github_repo_name: github_repo_name ?? null,
+    });
+  }
+
+  const createdConns: PlatformConnection[] = [];
+  if (connInputs && connInputs.length > 0) {
+    for (const connInput of connInputs) {
+      const conn = await storage.createConnection(project.id, connInput.platform, connInput.branch_name);
+      createdConns.push(conn);
+    }
+  }
+
+  const updatedProject = await storage.getProjectById(project.id);
+  if (!updatedProject) return res.status(500).json({ message: "Failed to read project after creation" });
+
+  const allConns = await storage.getConnectionsByProject(project.id);
+
+  if (github_repo_name && github_repo_name.includes("/") && allConns.length > 0) {
+    try {
+      const token = await getAccessToken(req.session.userId!);
+      const [owner, repo] = github_repo_name.split("/");
+      const repoInfo = await githubFetch(token, `/repos/${owner}/${repo}`) as { default_branch: string };
+      const defaultBranch = repoInfo.default_branch;
+
+      for (const conn of allConns) {
+        if (!conn.branch_name) {
+          await storage.updateConnection(conn.id, { status: "disconnected", ahead_by: 0, behind_by: 0, last_synced_at: new Date() });
+          continue;
+        }
+        if (conn.branch_name === defaultBranch) {
+          await storage.updateConnection(conn.id, { status: "synced", ahead_by: 0, behind_by: 0, last_synced_at: new Date() });
+          continue;
+        }
+        try {
+          const comparison = await githubFetch(
+            token,
+            `/repos/${owner}/${repo}/compare/${encodeURIComponent(defaultBranch)}...${encodeURIComponent(conn.branch_name)}`
+          ) as { ahead_by: number; behind_by: number };
+          let status: string;
+          if (comparison.ahead_by === 0 && comparison.behind_by === 0) status = "synced";
+          else if (comparison.ahead_by > 0 && comparison.behind_by > 0) status = "conflict";
+          else status = "drifted";
+          await storage.updateConnection(conn.id, { status, last_synced_at: new Date(), ahead_by: comparison.ahead_by, behind_by: comparison.behind_by });
+        } catch {
+          // sync error for individual connection — skip
+        }
+      }
+    } catch {
+      // initial sync failed — project still created successfully
+    }
+  }
+
+  const finalConns = await storage.getConnectionsByProject(project.id);
+  const finalProject = await storage.getProjectById(project.id);
+  return res.status(201).json(formatProject(finalProject!, finalConns));
 });
 
 // GET /api/projects/:id

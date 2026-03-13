@@ -22,7 +22,7 @@ Preferred communication style: Simple, everyday language.
 ### Frontend Architecture
 
 - **Framework**: React 18 with TypeScript, bundled by Vite
-- **Routing**: `wouter` — pages: `/` (Home), `/dashboard` (Dashboard), `/projects/:id` (Project Detail), catch-all 404
+- **Routing**: `wouter` — pages: `/` (Home), `/onboard` (Onboarding Wizard), `/dashboard` (Dashboard), `/projects/:id` (Project Detail), catch-all 404
 - **State / Data Fetching**: TanStack Query (React Query v5) for server state; mutations use `useMutation`
 - **Auth Hook**: `useAuth()` in `client/src/hooks/use-auth.ts` queries `GET /auth/me` for current user state
 - **UI Components**: shadcn/ui (New York style) built on Radix UI primitives
@@ -37,7 +37,9 @@ Preferred communication style: Simple, everyday language.
 - **Entry point**: `server/index.ts` creates an HTTP server, registers routes, and serves static files in production
 - **Auth**: GitHub OAuth flow in `server/src/routes/auth.ts` (routes: `/auth/github`, `/auth/github/callback`, `/auth/me`, `/auth/logout`)
 - **Session**: `express-session` with `memorystore` (in-memory), configured in `server/src/middleware/session.ts`
-- **Routes**: Auth routes at `/auth/*`, user routes at `/api/me`, project routes at `/api/projects`
+- **Routes**: Auth routes at `/auth/*`, user routes at `/api/me`, project routes at `/api/projects`, GitHub routes at `/api/github/*`
+- **GitHub endpoints**: `GET /api/github/repos` (list user repos), `GET /api/github/repos/:owner/:repo/branches` (list branches), `GET /api/github/repos/public?url=` (resolve public repo from URL), `POST /api/github/fork` (fork repo to user account)
+- **Atomic project creation**: `POST /api/projects` accepts optional `github_repo_name`, `github_repo_url`, `connections[]` — creates project, links repo, creates connections, and runs initial sync in one call
 - **Storage layer**: `server/storage.ts` provides a `DatabaseStorage` class implementing an `IStorage` interface using Drizzle ORM + PostgreSQL
 - **Dev server**: In development, Vite runs as middleware inside the Express server (see `server/vite.ts`)
 - **Production build**: `script/build.ts` runs Vite for the client, then esbuild to bundle the server into `dist/index.cjs`
@@ -57,9 +59,10 @@ Preferred communication style: Simple, everyday language.
 
 ### Authentication Flow
 
-1. User clicks "Get Started" on landing page
-2. If not logged in → redirects to `/auth/github` → GitHub OAuth → callback creates/updates user → redirects to `/?auth=success`
-3. If logged in → submits project creation form → navigates to `/dashboard`
+1. User clicks "Get Started" on landing page → navigates to `/onboard?name=<project_name>`
+2. If not logged in → redirects to `/auth/github?redirect=/onboard` → GitHub OAuth → callback creates/updates user → redirects to stored `postAuthRedirect` session path (allowlisted: `/onboard`, `/dashboard`; default: `/dashboard`)
+3. Onboard wizard: 4-step flow (Name → Starting Point → AI Agents → Review & Launch) → creates project atomically via `POST /api/projects` → navigates to `/projects/:id`
+4. Dashboard "New Project" button → navigates to `/onboard`
 
 ### Platform Connections & GitHub Sync
 
