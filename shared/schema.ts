@@ -29,6 +29,8 @@ export const platformConnections = pgTable("platform_connections", {
   platform: text("platform").notNull(),
   branch_name: text("branch_name"),
   status: text("status").notNull().default("disconnected"),
+  ahead_by: integer("ahead_by").default(0),
+  behind_by: integer("behind_by").default(0),
   last_synced_at: timestamp("last_synced_at"),
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),

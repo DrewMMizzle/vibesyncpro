@@ -74,6 +74,10 @@ Each project can have up to 3 platform connections: `replit`, `claude_code`, `co
 - GitHub API proxy: `GET /api/github/repos` (list user repos), `GET /api/github/repos/:owner/:repo/branches` (list branches)
 - Connection CRUD: `POST /api/projects/:id/connections`, `PATCH /api/projects/:id/connections/:connId`, `DELETE /api/projects/:id/connections/:connId`
 - Sync status logic: ahead=0 & behind=0 → synced; both >0 → conflict; otherwise → drifted
+- `ahead_by` and `behind_by` integer columns on `platform_connections` track commit counts from GitHub Compare API
+- Resolution endpoint: `POST /api/projects/:id/connections/:connId/resolve` with `action` field (`merge_to_default` or `update_from_default`) uses GitHub Merges API
+- On merge conflict (GitHub 409), returns `conflict_url` pointing to GitHub compare page for manual resolution
+- Frontend connection cards show plain-English explanations and action buttons: "Merge to main" (ahead), "Update branch" (behind), "Auto-resolve" (conflict)
 
 ---
 
