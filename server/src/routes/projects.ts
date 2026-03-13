@@ -126,14 +126,14 @@ router.post("/:id/sync", requireAuth, async (req, res) => {
 
   for (const conn of connections) {
     if (!conn.branch_name) {
-      await storage.updateConnection(conn.id, { status: "disconnected", last_synced_at: new Date() });
-      results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: "disconnected", last_synced_at: new Date().toISOString() });
+      await storage.updateConnection(conn.id, { status: "disconnected", ahead_by: 0, behind_by: 0, last_synced_at: new Date() });
+      results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: "disconnected", last_synced_at: new Date().toISOString(), ahead_by: 0, behind_by: 0 });
       continue;
     }
 
     if (conn.branch_name === defaultBranch) {
-      await storage.updateConnection(conn.id, { status: "synced", last_synced_at: new Date() });
-      results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: "synced", last_synced_at: new Date().toISOString() });
+      await storage.updateConnection(conn.id, { status: "synced", ahead_by: 0, behind_by: 0, last_synced_at: new Date() });
+      results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: "synced", last_synced_at: new Date().toISOString(), ahead_by: 0, behind_by: 0 });
       continue;
     }
 
