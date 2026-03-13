@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/requireAuth";
 import { storage } from "../../storage";
+import { githubFetch, getAccessToken } from "./github";
 
 const router = Router();
 
@@ -60,6 +61,114 @@ router.get("/:id", requireAuth, async (req, res) => {
 
   const connections = await storage.getConnectionsByProject(project.id);
   return res.json(formatProject(project, connections));
+});
+
+// PATCH /api/projects/:id — update project (link repo, etc.)
+router.patch("/:id", requireAuth, async (req, res) => {
+  const projectId = parseInt(req.params.id as string, 10);
+  if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+
+  const project = await storage.getProjectById(projectId);
+  if (!project) return res.status(404).json({ message: "Project not found" });
+  if (project.user_id !== req.session.userId) return res.status(403).json({ message: "Forbidden" });
+
+  const bodySchema = z.object({
+    github_repo_url: z.string().optional().nullable(),
+    github_repo_name: z.string().optional().nullable(),
+    name: z.string().min(1).optional(),
+    description: z.string().optional().nullable(),
+  });
+  const parsed = bodySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Invalid fields" });
+
+  const updated = await storage.updateProject(projectId, parsed.data);
+  if (!updated) return res.status(404).json({ message: "Project not found" });
+
+  const connections = await storage.getConnectionsByProject(projectId);
+  return res.json(formatProject(updated, connections));
+});
+
+// POST /api/projects/:id/sync — compare branches via GitHub API and update statuses
+router.post("/:id/sync", requireAuth, async (req, res) => {
+  const projectId = parseInt(req.params.id as string, 10);
+  if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+
+  const project = await storage.getProjectById(projectId);
+  if (!project) return res.status(404).json({ message: "Project not found" });
+  if (project.user_id !== req.session.userId) return res.status(403).json({ message: "Forbidden" });
+
+  if (!project.github_repo_name || !project.github_repo_name.includes("/")) {
+    return res.status(400).json({ message: "No GitHub repo linked to this project" });
+  }
+
+  let token: string;
+  try {
+    token = await getAccessToken(req.session.userId!);
+  } catch (err: any) {
+    return res.status(401).json({ message: "GitHub access token not found. Please re-authenticate." });
+  }
+
+  const connections = await storage.getConnectionsByProject(projectId);
+  const [owner, repo] = project.github_repo_name.split("/");
+
+  let defaultBranch: string;
+  try {
+    const repoInfo = await githubFetch(token, `/repos/${owner}/${repo}`) as { default_branch: string };
+    defaultBranch = repoInfo.default_branch;
+  } catch (err: any) {
+    return res.status(502).json({ message: "Failed to fetch repository info from GitHub" });
+  }
+
+  const results: Array<{ id: number; platform: string; branch_name: string | null; status: string; last_synced_at: string | null; ahead_by?: number; behind_by?: number }> = [];
+
+  for (const conn of connections) {
+    if (!conn.branch_name) {
+      await storage.updateConnection(conn.id, { status: "disconnected", last_synced_at: new Date() });
+      results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: "disconnected", last_synced_at: new Date().toISOString() });
+      continue;
+    }
+
+    if (conn.branch_name === defaultBranch) {
+      await storage.updateConnection(conn.id, { status: "synced", last_synced_at: new Date() });
+      results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: "synced", last_synced_at: new Date().toISOString() });
+      continue;
+    }
+
+    try {
+      const encodedBase = encodeURIComponent(defaultBranch);
+      const encodedHead = encodeURIComponent(conn.branch_name);
+      const comparison = await githubFetch(
+        token,
+        `/repos/${owner}/${repo}/compare/${encodedBase}...${encodedHead}`
+      ) as { ahead_by: number; behind_by: number; status: string };
+
+      let status: string;
+      if (comparison.ahead_by === 0 && comparison.behind_by === 0) {
+        status = "synced";
+      } else if (comparison.ahead_by > 0 && comparison.behind_by > 0) {
+        status = "conflict";
+      } else {
+        status = "drifted";
+      }
+
+      await storage.updateConnection(conn.id, { status, last_synced_at: new Date() });
+      results.push({
+        id: conn.id,
+        platform: conn.platform,
+        branch_name: conn.branch_name,
+        status,
+        last_synced_at: new Date().toISOString(),
+        ahead_by: comparison.ahead_by,
+        behind_by: comparison.behind_by,
+      });
+    } catch (err: any) {
+      console.error(`Sync error for connection ${conn.id}:`, err.message);
+      await storage.updateConnection(conn.id, { status: "disconnected", last_synced_at: new Date() });
+      results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: "disconnected", last_synced_at: new Date().toISOString() });
+    }
+  }
+
+  return res.json({ synced: true, connections: results, default_branch: defaultBranch });
 });
 
 // POST /api/projects/:id/connections
