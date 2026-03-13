@@ -3,19 +3,82 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { getQueryFn } from "@/lib/queryClient";
-import { LogOut, FolderOpen, Plus } from "lucide-react";
+import {
+  LogOut, FolderOpen, Plus, Globe, Bot, Monitor,
+  AlertTriangle, CheckCircle2, Clock,
+} from "lucide-react";
 import { motion } from "framer-motion";
+
+type Status = "disconnected" | "connected" | "synced" | "drifted" | "conflict";
+
+interface ConnectionItem {
+  id: number;
+  platform: string;
+  status: Status;
+  last_synced_at: string | null;
+}
 
 interface ProjectItem {
   id: number;
   name: string;
   description: string | null;
   created_at: string | null;
-  platform_connections: Array<{
-    id: number;
-    platform: string;
-    status: string;
-  }>;
+  platform_connections: ConnectionItem[];
+}
+
+const PLATFORM_ICONS: Record<string, typeof Globe> = {
+  replit: Globe,
+  claude_code: Bot,
+  computer: Monitor,
+};
+
+const STATUS_DOT: Record<Status, string> = {
+  synced: "bg-green-500",
+  connected: "bg-blue-500",
+  drifted: "bg-yellow-500",
+  conflict: "bg-red-500",
+  disconnected: "bg-muted-foreground/30",
+};
+
+const STATUS_LABEL: Record<Status, string> = {
+  synced: "Synced",
+  connected: "Connected",
+  drifted: "Drifted",
+  conflict: "Conflict",
+  disconnected: "Disconnected",
+};
+
+function timeAgo(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  if (Number.isNaN(then)) return "";
+  const seconds = Math.floor((now - then) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function getLatestSync(connections: ConnectionItem[]): string | null {
+  let latest: string | null = null;
+  for (const c of connections) {
+    if (c.last_synced_at && (!latest || c.last_synced_at > latest)) {
+      latest = c.last_synced_at;
+    }
+  }
+  return latest;
+}
+
+function getWorstStatus(connections: ConnectionItem[]): Status | null {
+  if (connections.length === 0) return null;
+  const priority: Status[] = ["conflict", "drifted", "disconnected", "connected", "synced"];
+  for (const s of priority) {
+    if (connections.some((c) => c.status === s)) return s;
+  }
+  return null;
 }
 
 export default function Dashboard() {
@@ -26,6 +89,7 @@ export default function Dashboard() {
     queryKey: ["/api/projects"],
     queryFn: getQueryFn({ on401: "throw" }),
     enabled: isLoggedIn,
+    refetchInterval: 30000,
   });
 
   useEffect(() => {
@@ -93,7 +157,7 @@ export default function Dashboard() {
         {projectsLoading ? (
           <div className="space-y-4">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="h-20 rounded-lg bg-muted animate-pulse" />
+              <div key={i} className="h-24 rounded-lg bg-muted animate-pulse" />
             ))}
           </div>
         ) : !projects || projects.length === 0 ? (
@@ -113,40 +177,92 @@ export default function Dashboard() {
             animate={{ opacity: 1 }}
             className="space-y-3"
           >
-            {projects.map((project, index) => (
-              <motion.div
-                key={project.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05 }}
-                data-testid={`card-project-${project.id}`}
-                onClick={() => navigate(`/projects/${project.id}`)}
-                className="border border-border rounded-lg p-5 hover:border-foreground/30 hover:shadow-sm transition-all cursor-pointer"
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h2 data-testid={`text-project-name-${project.id}`} className="font-medium text-foreground">
-                      {project.name}
-                    </h2>
-                    {project.description && (
-                      <p data-testid={`text-project-desc-${project.id}`} className="text-sm text-muted-foreground mt-1">
-                        {project.description}
-                      </p>
-                    )}
-                    {project.platform_connections.length > 0 && (
-                      <p className="text-xs text-muted-foreground/60 mt-2">
-                        {project.platform_connections.length} platform{project.platform_connections.length !== 1 ? "s" : ""} connected
-                      </p>
-                    )}
+            {projects.map((project, index) => {
+              const worst = getWorstStatus(project.platform_connections);
+              const hasConflict = project.platform_connections.some((c) => c.status === "conflict");
+              const hasDrift = project.platform_connections.some((c) => c.status === "drifted");
+              const latestSync = getLatestSync(project.platform_connections);
+
+              return (
+                <motion.div
+                  key={project.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                  data-testid={`card-project-${project.id}`}
+                  onClick={() => navigate(`/projects/${project.id}`)}
+                  className={`border rounded-lg p-5 hover:shadow-sm transition-all cursor-pointer ${
+                    hasConflict
+                      ? "border-red-300 dark:border-red-800 bg-red-50/30 dark:bg-red-950/10"
+                      : hasDrift
+                        ? "border-yellow-300 dark:border-yellow-800 bg-yellow-50/20 dark:bg-yellow-950/10"
+                        : "border-border hover:border-foreground/30"
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h2 data-testid={`text-project-name-${project.id}`} className="font-medium text-foreground truncate">
+                          {project.name}
+                        </h2>
+                        {hasConflict && (
+                          <span data-testid={`badge-conflict-${project.id}`} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 shrink-0">
+                            <AlertTriangle className="w-3 h-3" />
+                            Conflict
+                          </span>
+                        )}
+                        {!hasConflict && hasDrift && (
+                          <span data-testid={`badge-drift-${project.id}`} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300 shrink-0">
+                            Drifted
+                          </span>
+                        )}
+                        {worst === "synced" && (
+                          <CheckCircle2 data-testid={`icon-synced-${project.id}`} className="w-4 h-4 text-green-500 shrink-0" />
+                        )}
+                      </div>
+                      {project.description && (
+                        <p data-testid={`text-project-desc-${project.id}`} className="text-sm text-muted-foreground mt-1 truncate">
+                          {project.description}
+                        </p>
+                      )}
+
+                      {project.platform_connections.length > 0 && (
+                        <div className="flex items-center gap-3 mt-3">
+                          {project.platform_connections.map((conn) => {
+                            const Icon = PLATFORM_ICONS[conn.platform] || Globe;
+                            return (
+                              <div
+                                key={conn.id}
+                                data-testid={`status-indicator-${project.id}-${conn.platform}`}
+                                className="flex items-center gap-1.5"
+                                title={`${conn.platform === "claude_code" ? "Claude Code" : conn.platform === "replit" ? "Replit" : "Computer"}: ${STATUS_LABEL[conn.status] || conn.status}`}
+                              >
+                                <Icon className="w-3.5 h-3.5 text-muted-foreground/60" />
+                                <span className={`w-2 h-2 rounded-full ${STATUS_DOT[conn.status] || "bg-muted-foreground/30"}`} />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col items-end gap-1 shrink-0 ml-4">
+                      {project.created_at && (
+                        <span data-testid={`text-project-date-${project.id}`} className="text-xs text-muted-foreground/60">
+                          {new Date(project.created_at).toLocaleDateString()}
+                        </span>
+                      )}
+                      {latestSync && (
+                        <span data-testid={`text-last-synced-${project.id}`} className="flex items-center gap-1 text-xs text-muted-foreground/50">
+                          <Clock className="w-3 h-3" />
+                          {timeAgo(latestSync)}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  {project.created_at && (
-                    <span data-testid={`text-project-date-${project.id}`} className="text-xs text-muted-foreground/60 shrink-0 ml-4">
-                      {new Date(project.created_at).toLocaleDateString()}
-                    </span>
-                  )}
-                </div>
-              </motion.div>
-            ))}
+                </motion.div>
+              );
+            })}
           </motion.div>
         )}
       </main>
