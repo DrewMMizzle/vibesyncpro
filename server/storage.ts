@@ -18,7 +18,7 @@ export interface IStorage {
   getConnectionsByProject(projectId: number): Promise<PlatformConnection[]>;
   getConnectionById(connectionId: number): Promise<PlatformConnection | undefined>;
   createConnection(projectId: number, platform: string, branchName: string | null): Promise<PlatformConnection>;
-  updateConnection(connectionId: number, fields: { status?: string; branch_name?: string | null; last_synced_at?: Date | null }): Promise<PlatformConnection | undefined>;
+  updateConnection(connectionId: number, fields: { status?: string; branch_name?: string | null; last_synced_at?: Date | null; ahead_by?: number; behind_by?: number }): Promise<PlatformConnection | undefined>;
   deleteConnection(connectionId: number): Promise<void>;
   updateProject(projectId: number, fields: { github_repo_url?: string | null; github_repo_name?: string | null; name?: string; description?: string | null }): Promise<Project | undefined>;
 }
@@ -80,7 +80,7 @@ export class DatabaseStorage implements IStorage {
     return conn;
   }
 
-  async updateConnection(connectionId: number, fields: { status?: string; branch_name?: string | null; last_synced_at?: Date | null }): Promise<PlatformConnection | undefined> {
+  async updateConnection(connectionId: number, fields: { status?: string; branch_name?: string | null; last_synced_at?: Date | null; ahead_by?: number; behind_by?: number }): Promise<PlatformConnection | undefined> {
     const [conn] = await db
       .update(platformConnections)
       .set({ ...fields, updated_at: new Date() })

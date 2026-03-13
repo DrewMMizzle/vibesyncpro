@@ -13,19 +13,28 @@ async function getAccessToken(userId: number): Promise<string> {
   return user.access_token;
 }
 
-async function githubFetch(token: string, path: string) {
+async function githubFetch(token: string, path: string, options?: { method?: string; body?: Record<string, unknown> }) {
   const res = await fetch(`${GITHUB_API}${path}`, {
+    method: options?.method ?? "GET",
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
+      ...(options?.body ? { "Content-Type": "application/json" } : {}),
     },
+    ...(options?.body ? { body: JSON.stringify(options.body) } : {}),
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`GitHub API error ${res.status}: ${body}`);
+    const error = new Error(`GitHub API error ${res.status}: ${body}`);
+    (error as GitHubApiError).statusCode = res.status;
+    throw error;
   }
   return res.json();
+}
+
+interface GitHubApiError extends Error {
+  statusCode?: number;
 }
 
 router.get("/repos", requireAuth, async (req, res) => {

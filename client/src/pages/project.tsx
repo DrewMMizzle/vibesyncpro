@@ -6,7 +6,7 @@ import { getQueryFn, apiRequest, queryClient } from "@/lib/queryClient";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Plus, Trash2, Monitor, Bot, Globe, RefreshCw, GitBranch,
-  Search, Lock, Unlock, ExternalLink,
+  Search, Lock, Unlock, ExternalLink, GitMerge, ArrowDownToLine, Zap, AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -18,6 +18,8 @@ interface Connection {
   platform: Platform;
   branch_name: string | null;
   status: Status;
+  ahead_by: number;
+  behind_by: number;
   last_synced_at: string | null;
 }
 
@@ -211,6 +213,47 @@ export default function ProjectPage() {
     },
   });
 
+  const [conflictInfo, setConflictInfo] = useState<{ connId: number; url: string } | null>(null);
+
+  const resolveConnection = useMutation({
+    mutationFn: async ({ connId, action }: { connId: number; action: "merge_to_default" | "update_from_default" }) => {
+      const res = await fetch(`/api/projects/${projectId}/connections/${connId}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) {
+        const body = await res.json();
+        if (res.status === 409 && body.conflict_url) {
+          const error = new Error(body.message) as Error & { conflict_url: string };
+          error.conflict_url = body.conflict_url;
+          throw error;
+        }
+        throw new Error(body.message || "Resolve failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      syncStatus.mutate();
+      toast({ title: "Resolved", description: "Branches merged successfully" });
+      setConflictInfo(null);
+    },
+    onError: (err: Error & { conflict_url?: string }, variables) => {
+      if (err.conflict_url) {
+        setConflictInfo({ connId: variables.connId, url: err.conflict_url });
+        toast({
+          title: "Conflict detected",
+          description: "These branches edited the same files differently. Open in GitHub to resolve.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Resolve failed", description: err.message, variant: "destructive" });
+      }
+    },
+  });
+
   if (authLoading || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -365,60 +408,148 @@ export default function ProjectPage() {
           )}
 
           <AnimatePresence>
-            {project.platform_connections.map((conn) => (
-              <motion.div
-                key={conn.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                data-testid={`card-connection-${conn.id}`}
-                className="border border-border rounded-lg p-5"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="text-muted-foreground">
-                      {PLATFORM_ICONS[conn.platform]}
-                    </span>
-                    <div>
-                      <span data-testid={`text-platform-${conn.id}`} className="font-medium text-foreground">
-                        {PLATFORM_LABELS[conn.platform]}
-                      </span>
-                      {conn.branch_name && (
-                        <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                          <GitBranch className="w-3 h-3" />
-                          {conn.branch_name}
-                        </p>
-                      )}
-                    </div>
-                  </div>
+            {project.platform_connections.map((conn) => {
+              const isAhead = conn.status === "drifted" && conn.ahead_by > 0 && conn.behind_by === 0;
+              const isBehind = conn.status === "drifted" && conn.behind_by > 0 && conn.ahead_by === 0;
+              const isConflict = conn.status === "conflict";
+              const showResolution = isAhead || isBehind || isConflict;
+              const isResolving = resolveConnection.isPending;
 
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
-                      <span
-                        data-testid={`badge-status-${conn.id}`}
-                        className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${STATUS_STYLES[conn.status]}`}
+              return (
+                <motion.div
+                  key={conn.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  data-testid={`card-connection-${conn.id}`}
+                  className="border border-border rounded-lg p-5"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="text-muted-foreground">
+                        {PLATFORM_ICONS[conn.platform]}
+                      </span>
+                      <div>
+                        <span data-testid={`text-platform-${conn.id}`} className="font-medium text-foreground">
+                          {PLATFORM_LABELS[conn.platform]}
+                        </span>
+                        {conn.branch_name && (
+                          <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                            <GitBranch className="w-3 h-3" />
+                            {conn.branch_name}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <span
+                          data-testid={`badge-status-${conn.id}`}
+                          className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${STATUS_STYLES[conn.status]}`}
+                        >
+                          {STATUS_LABELS[conn.status]}
+                        </span>
+                        {conn.last_synced_at && (
+                          <p data-testid={`text-synced-at-${conn.id}`} className="text-[10px] text-muted-foreground/60 mt-1">
+                            {timeAgo(conn.last_synced_at)}
+                          </p>
+                        )}
+                      </div>
+
+                      <button
+                        data-testid={`button-delete-connection-${conn.id}`}
+                        onClick={() => deleteConnection.mutate(conn.id)}
+                        disabled={deleteConnection.isPending}
+                        className="text-muted-foreground/40 hover:text-red-500 transition-colors"
                       >
-                        {STATUS_LABELS[conn.status]}
-                      </span>
-                      {conn.last_synced_at && (
-                        <p data-testid={`text-synced-at-${conn.id}`} className="text-[10px] text-muted-foreground/60 mt-1">
-                          {timeAgo(conn.last_synced_at)}
-                        </p>
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {showResolution && (
+                    <div data-testid={`resolution-${conn.id}`} className="mt-4 pt-4 border-t border-border">
+                      {isAhead && (
+                        <div className="flex items-start justify-between gap-3">
+                          <p data-testid={`text-resolution-${conn.id}`} className="text-sm text-muted-foreground">
+                            This agent has {conn.ahead_by} new {conn.ahead_by === 1 ? "commit" : "commits"} ready to add to your project.
+                          </p>
+                          <button
+                            data-testid={`button-merge-to-default-${conn.id}`}
+                            onClick={() => resolveConnection.mutate({ connId: conn.id, action: "merge_to_default" })}
+                            disabled={isResolving}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50 whitespace-nowrap"
+                          >
+                            <GitMerge className="w-3.5 h-3.5" />
+                            {isResolving ? "Merging..." : "Merge to main"}
+                          </button>
+                        </div>
+                      )}
+
+                      {isBehind && (
+                        <div className="flex items-start justify-between gap-3">
+                          <p data-testid={`text-resolution-${conn.id}`} className="text-sm text-muted-foreground">
+                            Your project has {conn.behind_by} new {conn.behind_by === 1 ? "commit" : "commits"} that this agent's branch doesn't have yet.
+                          </p>
+                          <button
+                            data-testid={`button-update-from-default-${conn.id}`}
+                            onClick={() => resolveConnection.mutate({ connId: conn.id, action: "update_from_default" })}
+                            disabled={isResolving}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50 whitespace-nowrap"
+                          >
+                            <ArrowDownToLine className="w-3.5 h-3.5" />
+                            {isResolving ? "Updating..." : "Update branch"}
+                          </button>
+                        </div>
+                      )}
+
+                      {isConflict && (
+                        <div>
+                          <div className="flex items-start justify-between gap-3">
+                            <p data-testid={`text-resolution-${conn.id}`} className="text-sm text-muted-foreground">
+                              Both your project ({conn.behind_by} {conn.behind_by === 1 ? "commit" : "commits"}) and this agent ({conn.ahead_by} {conn.ahead_by === 1 ? "commit" : "commits"}) have new changes that need to be combined.
+                            </p>
+                            <button
+                              data-testid={`button-auto-resolve-${conn.id}`}
+                              onClick={() => resolveConnection.mutate({ connId: conn.id, action: "merge_to_default" })}
+                              disabled={isResolving}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-yellow-600 text-white hover:bg-yellow-700 transition-colors disabled:opacity-50 whitespace-nowrap"
+                            >
+                              <Zap className="w-3.5 h-3.5" />
+                              {isResolving ? "Resolving..." : "Auto-resolve"}
+                            </button>
+                          </div>
+
+                          {conflictInfo && conflictInfo.connId === conn.id && (
+                            <div data-testid={`conflict-message-${conn.id}`} className="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800">
+                              <div className="flex items-start gap-2">
+                                <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                                <div>
+                                  <p className="text-sm text-red-700 dark:text-red-300">
+                                    These branches edited the same files differently. You'll need to resolve the conflicts on GitHub.
+                                  </p>
+                                  <a
+                                    href={conflictInfo.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    data-testid={`link-conflict-${conn.id}`}
+                                    className="inline-flex items-center gap-1.5 mt-2 text-sm font-medium text-red-600 dark:text-red-400 hover:underline"
+                                  >
+                                    Open in GitHub
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                  </a>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
-
-                    <button
-                      data-testid={`button-delete-connection-${conn.id}`}
-                      onClick={() => deleteConnection.mutate(conn.id)}
-                      disabled={deleteConnection.isPending}
-                      className="text-muted-foreground/40 hover:text-red-500 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
+                  )}
+                </motion.div>
+              );
+            })}
           </AnimatePresence>
         </div>
       </main>

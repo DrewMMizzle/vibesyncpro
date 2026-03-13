@@ -23,6 +23,8 @@ function formatProject(project: Project, connections: PlatformConnection[]) {
       platform: c.platform,
       branch_name: c.branch_name,
       status: c.status,
+      ahead_by: c.ahead_by ?? 0,
+      behind_by: c.behind_by ?? 0,
       last_synced_at: c.last_synced_at,
     })),
   };
@@ -152,7 +154,7 @@ router.post("/:id/sync", requireAuth, async (req, res) => {
         status = "drifted";
       }
 
-      await storage.updateConnection(conn.id, { status, last_synced_at: new Date() });
+      await storage.updateConnection(conn.id, { status, last_synced_at: new Date(), ahead_by: comparison.ahead_by, behind_by: comparison.behind_by });
       results.push({
         id: conn.id,
         platform: conn.platform,
@@ -239,6 +241,119 @@ router.patch("/:id/connections/:connId", requireAuth, async (req, res) => {
     status: updated.status,
     last_synced_at: updated.last_synced_at,
   });
+});
+
+// POST /api/projects/:id/connections/:connId/resolve — merge branches via GitHub API
+router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) => {
+  const projectId = parseInt(req.params.id as string, 10);
+  const connId = parseInt(req.params.connId as string, 10);
+  if (isNaN(projectId) || isNaN(connId)) return res.status(400).json({ message: "Invalid ID" });
+
+  const project = await storage.getProjectById(projectId);
+  if (!project) return res.status(404).json({ message: "Project not found" });
+  if (project.user_id !== req.session.userId) return res.status(403).json({ message: "Forbidden" });
+
+  if (!project.github_repo_name || !project.github_repo_name.includes("/")) {
+    return res.status(400).json({ message: "No GitHub repo linked to this project" });
+  }
+
+  const conn = await storage.getConnectionById(connId);
+  if (!conn || conn.project_id !== projectId) return res.status(404).json({ message: "Connection not found" });
+
+  if (!conn.branch_name) {
+    return res.status(400).json({ message: "Connection has no branch assigned" });
+  }
+
+  const actionSchema = z.object({
+    action: z.enum(["merge_to_default", "update_from_default"]),
+  });
+  const parsed = actionSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Invalid action. Use merge_to_default or update_from_default." });
+
+  const { action } = parsed.data;
+
+  let token: string;
+  try {
+    token = await getAccessToken(req.session.userId!);
+  } catch {
+    return res.status(401).json({ message: "GitHub access token not found. Please re-authenticate." });
+  }
+
+  const [owner, repo] = project.github_repo_name.split("/");
+
+  let defaultBranch: string;
+  try {
+    const repoInfo = await githubFetch(token, `/repos/${owner}/${repo}`) as { default_branch: string };
+    defaultBranch = repoInfo.default_branch;
+  } catch {
+    return res.status(502).json({ message: "Failed to fetch repository info from GitHub" });
+  }
+
+  const branchName = conn.branch_name;
+
+  try {
+    if (action === "merge_to_default") {
+      await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
+        method: "POST",
+        body: {
+          base: defaultBranch,
+          head: branchName,
+          commit_message: `Merge ${branchName} into ${defaultBranch} via VibeSyncPro`,
+        },
+      });
+    } else {
+      await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
+        method: "POST",
+        body: {
+          base: branchName,
+          head: defaultBranch,
+          commit_message: `Update ${branchName} from ${defaultBranch} via VibeSyncPro`,
+        },
+      });
+    }
+
+    const encodedBase = encodeURIComponent(defaultBranch);
+    const encodedHead = encodeURIComponent(branchName);
+    const comparison = await githubFetch(
+      token,
+      `/repos/${owner}/${repo}/compare/${encodedBase}...${encodedHead}`
+    ) as { ahead_by: number; behind_by: number };
+
+    let newStatus: string;
+    if (comparison.ahead_by === 0 && comparison.behind_by === 0) {
+      newStatus = "synced";
+    } else if (comparison.ahead_by > 0 && comparison.behind_by > 0) {
+      newStatus = "conflict";
+    } else {
+      newStatus = "drifted";
+    }
+
+    await storage.updateConnection(conn.id, {
+      status: newStatus,
+      ahead_by: comparison.ahead_by,
+      behind_by: comparison.behind_by,
+      last_synced_at: new Date(),
+    });
+
+    return res.json({
+      id: conn.id,
+      status: newStatus,
+      ahead_by: comparison.ahead_by,
+      behind_by: comparison.behind_by,
+    });
+  } catch (err) {
+    const statusCode = (err as { statusCode?: number }).statusCode;
+    if (statusCode === 409) {
+      const conflictUrl = `https://github.com/${owner}/${repo}/compare/${encodeURIComponent(defaultBranch)}...${encodeURIComponent(branchName)}`;
+      return res.status(409).json({
+        message: "These branches edited the same files differently. You'll need to resolve the conflicts on GitHub.",
+        conflict_url: conflictUrl,
+      });
+    }
+    const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    console.error(`Resolve error for connection ${conn.id}:`, errorMessage);
+    return res.status(502).json({ message: "Failed to merge branches on GitHub. Please try again." });
+  }
 });
 
 // DELETE /api/projects/:id/connections/:connId
