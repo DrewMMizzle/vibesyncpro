@@ -121,9 +121,15 @@ export default function OnboardPage() {
 
   useEffect(() => {
     if (!authLoading && !isLoggedIn) {
+      const params = new URLSearchParams(window.location.search);
+      const urlPath = params.get("path");
       const storedPath = sessionStorage.getItem("onboard_path");
-      const redirectUrl = storedPath
-        ? `/onboard?path=${storedPath}`
+      const pathToPreserve = urlPath || storedPath;
+      if (urlPath && !storedPath) {
+        sessionStorage.setItem("onboard_path", urlPath);
+      }
+      const redirectUrl = pathToPreserve
+        ? `/onboard?path=${pathToPreserve}`
         : "/onboard";
       window.location.href = `/auth/github?redirect=${encodeURIComponent(redirectUrl)}`;
     }
@@ -207,11 +213,17 @@ export default function OnboardPage() {
   const handlePickPath = (path: EntryPath) => {
     setEntryPath(path);
     setStepIndex(0);
+    const freshPlatforms: Record<Platform, PlatformSetup> = {
+      replit: { enabled: false, branch_name: null },
+      claude_code: { enabled: false, branch_name: null },
+      computer: { enabled: false, branch_name: null },
+    };
     if (path === "replit") {
-      setPlatforms((prev) => ({ ...prev, replit: { enabled: true, branch_name: null } }));
+      freshPlatforms.replit = { enabled: true, branch_name: null };
     } else if (path === "claude_code") {
-      setPlatforms((prev) => ({ ...prev, claude_code: { enabled: true, branch_name: null } }));
+      freshPlatforms.claude_code = { enabled: true, branch_name: null };
     }
+    setPlatforms(freshPlatforms);
   };
 
   const handleNameSubmit = (e: React.FormEvent) => {
