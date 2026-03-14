@@ -1,4 +1,33 @@
-import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { QueryClient, QueryFunction, QueryCache, MutationCache } from "@tanstack/react-query";
+
+export class GitHubTokenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GitHubTokenError";
+  }
+}
+
+async function handle401(res: Response): Promise<never> {
+  const text = await res.text();
+  let parsed: { code?: string; message?: string } | null = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch { /* not JSON */ }
+
+  if (parsed?.code === "github_token_invalid") {
+    throw new GitHubTokenError(parsed.message ?? "Your GitHub access has expired. Please sign in again.");
+  }
+
+  queryClient.clear();
+  window.location.href = "/";
+  throw new Error("Session expired");
+}
+
+function handleGlobalError(error: Error) {
+  if (error instanceof GitHubTokenError) {
+    window.dispatchEvent(new CustomEvent("github-token-error", { detail: error.message }));
+  }
+}
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -20,17 +49,11 @@ export async function apiRequest(
   });
 
   if (res.status === 401) {
-    handleGlobal401();
-    throw new Error("Session expired");
+    await handle401(res);
   }
 
   await throwIfResNotOk(res);
   return res;
-}
-
-function handleGlobal401() {
-  queryClient.clear();
-  window.location.href = "/";
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -48,8 +71,7 @@ export const getQueryFn: <T>(options: {
     }
 
     if (res.status === 401) {
-      handleGlobal401();
-      throw new Error("Session expired");
+      await handle401(res);
     }
 
     await throwIfResNotOk(res);
@@ -57,6 +79,12 @@ export const getQueryFn: <T>(options: {
   };
 
 export const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error) => handleGlobalError(error),
+  }),
+  mutationCache: new MutationCache({
+    onError: (error) => handleGlobalError(error),
+  }),
   defaultOptions: {
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
