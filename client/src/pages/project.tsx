@@ -9,6 +9,7 @@ import {
   Search, Lock, Unlock, ExternalLink, GitMerge, ArrowDownToLine, Zap, AlertTriangle,
   Eye, EyeOff, Send, FolderGit2, ChevronDown, ChevronRight, Pencil, Check, X, Settings,
   Activity, CircleCheck, CircleAlert, CircleDot, CircleX, Rocket, GitFork,
+  Copy, Terminal, Lightbulb, ArrowRight,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -164,6 +165,14 @@ export default function ProjectPage() {
   const [editDesc, setEditDesc] = useState("");
   const [defaultBranch, setDefaultBranch] = useState<string | null>(null);
   const [launchBanner, setLaunchBanner] = useState(false);
+  const [editingBranchConnId, setEditingBranchConnId] = useState<number | null>(null);
+  const [editBranchValue, setEditBranchValue] = useState("");
+  const [showSetupGuide, setShowSetupGuide] = useState(false);
+  const [guideBranches, setGuideBranches] = useState<Record<number, string>>({});
+  const [guideSavedIds, setGuideSavedIds] = useState<Set<number>>(new Set());
+  const [dismissedSharedWarning, setDismissedSharedWarning] = useState(() => {
+    return localStorage.getItem("vsync_shared_warning_dismissed") === "1";
+  });
   const { toast } = useToast();
 
   const projectId = params?.id ? parseInt(params.id, 10) : null;
@@ -266,6 +275,22 @@ export default function ProjectPage() {
     },
     onError: (err: Error) => {
       toast({ title: "Failed to remove platform", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const updateConnectionBranch = useMutation({
+    mutationFn: async ({ connId, branch_name }: { connId: number; branch_name: string }) => {
+      const res = await apiRequest("PATCH", `/api/projects/${projectId}/connections/${connId}`, { branch_name });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      setEditingBranchConnId(null);
+      toast({ title: "Working copy updated", description: "VibeSyncPro will now track this branch" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update", description: err.message, variant: "destructive" });
     },
   });
 
@@ -526,6 +551,45 @@ export default function ProjectPage() {
     r.full_name.toLowerCase().includes(repoSearch.toLowerCase())
   ) ?? [];
 
+  const branchCounts = new Map<string, number>();
+  for (const conn of project.platform_connections) {
+    const branch = conn.branch_name ?? "(none)";
+    branchCounts.set(branch, (branchCounts.get(branch) ?? 0) + 1);
+  }
+  const hasSharedBranch = project.platform_connections.length >= 2 &&
+    [...branchCounts.values()].some((count) => count >= 2);
+  const sharedBranchConnections = hasSharedBranch
+    ? project.platform_connections.filter((c) => {
+        const branch = c.branch_name ?? "(none)";
+        return (branchCounts.get(branch) ?? 0) >= 2;
+      })
+    : [];
+
+  const SUGGESTED_BRANCH: Record<Platform, string> = {
+    replit: "replit-agent",
+    claude_code: "claude-code",
+    computer: "computer-use",
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      toast({ title: "Copied!", description: text.length > 60 ? text.slice(0, 60) + "…" : text });
+    });
+  };
+
+  const openSetupGuide = () => {
+    const initial: Record<number, string> = {};
+    for (const conn of sharedBranchConnections) {
+      initial[conn.id] = SUGGESTED_BRANCH[conn.platform] ?? "";
+    }
+    setGuideBranches(initial);
+    setGuideSavedIds(new Set());
+    setShowSetupGuide(true);
+  };
+
+  const allGuideConnectionsSaved = sharedBranchConnections.length > 0 &&
+    sharedBranchConnections.every((c) => guideSavedIds.has(c.id));
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border px-6 sm:px-8 py-4 flex items-center justify-between">
@@ -748,6 +812,48 @@ export default function ProjectPage() {
           )}
         </div>
 
+        {/* Shared-branch warning */}
+        {hasSharedBranch && !dismissedSharedWarning && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            data-testid="banner-shared-branch"
+            className="mb-6 p-5 rounded-lg border border-yellow-200 dark:border-yellow-800 bg-yellow-50/50 dark:bg-yellow-950/30"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p data-testid="text-shared-warning-title" className="font-medium text-yellow-800 dark:text-yellow-300">
+                    Your AI tools are editing the same copy of your code
+                  </p>
+                  <p className="text-sm text-yellow-700/80 dark:text-yellow-400/70 mt-1">
+                    This can cause them to overwrite each other's work. We recommend giving each tool its own workspace.
+                  </p>
+                  <button
+                    data-testid="button-open-setup-guide"
+                    onClick={openSetupGuide}
+                    className="inline-flex items-center gap-2 mt-3 px-4 py-2 rounded-md bg-yellow-600 text-white text-sm font-medium hover:bg-yellow-700 transition-colors"
+                  >
+                    Help me set up separate working copies
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <button
+                data-testid="button-dismiss-shared-warning"
+                onClick={() => {
+                  setDismissedSharedWarning(true);
+                  localStorage.setItem("vsync_shared_warning_dismissed", "1");
+                }}
+                className="text-yellow-600/50 hover:text-yellow-600 transition-colors flex-shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+
         {/* Platform Connections Section */}
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
@@ -821,11 +927,68 @@ export default function ProjectPage() {
                         <span data-testid={`text-platform-${conn.id}`} className="font-medium text-foreground">
                           {PLATFORM_LABELS[conn.platform]}
                         </span>
-                        {conn.branch_name && (
-                          <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                        {editingBranchConnId === conn.id ? (
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <GitBranch className="w-3 h-3 text-muted-foreground" />
+                            <input
+                              data-testid={`input-edit-branch-${conn.id}`}
+                              type="text"
+                              value={editBranchValue}
+                              onChange={(e) => setEditBranchValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && editBranchValue.trim()) {
+                                  updateConnectionBranch.mutate({ connId: conn.id, branch_name: editBranchValue.trim() });
+                                }
+                                if (e.key === "Escape") setEditingBranchConnId(null);
+                              }}
+                              className="px-1.5 py-0.5 text-xs rounded border border-border bg-background text-foreground focus:border-foreground focus:outline-none w-36"
+                              autoFocus
+                            />
+                            <button
+                              data-testid={`button-save-branch-${conn.id}`}
+                              onClick={() => {
+                                if (editBranchValue.trim()) {
+                                  updateConnectionBranch.mutate({ connId: conn.id, branch_name: editBranchValue.trim() });
+                                }
+                              }}
+                              disabled={!editBranchValue.trim() || updateConnectionBranch.isPending}
+                              className="text-green-600 hover:text-green-700 disabled:opacity-40"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              data-testid={`button-cancel-branch-${conn.id}`}
+                              onClick={() => setEditingBranchConnId(null)}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : conn.branch_name ? (
+                          <button
+                            data-testid={`button-edit-branch-${conn.id}`}
+                            onClick={() => {
+                              setEditingBranchConnId(conn.id);
+                              setEditBranchValue(conn.branch_name ?? "");
+                            }}
+                            className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1 hover:text-foreground transition-colors group"
+                          >
                             <GitBranch className="w-3 h-3" />
                             {conn.branch_name}
-                          </p>
+                            <Pencil className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </button>
+                        ) : (
+                          <button
+                            data-testid={`button-set-branch-${conn.id}`}
+                            onClick={() => {
+                              setEditingBranchConnId(conn.id);
+                              setEditBranchValue(SUGGESTED_BRANCH[conn.platform] ?? "");
+                            }}
+                            className="text-xs text-blue-600 mt-0.5 flex items-center gap-1 hover:text-blue-700 transition-colors"
+                          >
+                            <Plus className="w-3 h-3" />
+                            Set branch
+                          </button>
                         )}
                       </div>
                     </div>
@@ -1445,6 +1608,221 @@ export default function ProjectPage() {
                     {addConnection.isPending ? "Adding..." : "Add"}
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Setup Guide Modal */}
+      <AnimatePresence>
+        {showSetupGuide && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black z-40"
+              onClick={() => setShowSetupGuide(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              transition={{ duration: 0.25 }}
+              className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 pt-[8vh]"
+            >
+              <div className="bg-background border border-border rounded-xl shadow-xl w-full max-w-lg p-6 sm:p-8 relative" onClick={(e) => e.stopPropagation()}>
+                <button
+                  data-testid="button-close-setup-guide"
+                  onClick={() => setShowSetupGuide(false)}
+                  className="absolute top-4 right-4 text-muted-foreground/50 hover:text-foreground transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+
+                {!allGuideConnectionsSaved ? (
+                  <>
+                    <h2 data-testid="text-guide-heading" className="text-xl font-medium text-foreground pr-8">
+                      Let's give each AI tool its own workspace
+                    </h2>
+                    <p className="text-sm text-muted-foreground mt-2 mb-6">
+                      Right now, your tools are editing the same copy of your code. We'll fix that in a few steps — no technical knowledge needed.
+                    </p>
+
+                    <div className="p-4 rounded-lg bg-foreground/[0.02] border border-border mb-6">
+                      <div className="flex items-start gap-3">
+                        <Lightbulb className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium text-foreground">What's a working copy?</p>
+                          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                            Think of your project as a shared notebook. Right now, all your AI tools are writing in the same notebook at the same time — which can cause a mess. We're going to give each tool its own private notebook. When they're done, VibeSyncPro combines their work back into your main notebook automatically.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-5">
+                      {sharedBranchConnections.map((conn) => {
+                        const label = PLATFORM_LABELS[conn.platform];
+                        const isSaved = guideSavedIds.has(conn.id);
+                        const branchVal = guideBranches[conn.id] ?? "";
+
+                        return (
+                          <div
+                            key={conn.id}
+                            data-testid={`guide-card-${conn.platform}`}
+                            className={`p-4 rounded-lg border transition-colors ${isSaved ? "border-green-300 dark:border-green-700 bg-green-50/30 dark:bg-green-950/20" : "border-border"}`}
+                          >
+                            <div className="flex items-center gap-2 mb-3">
+                              <span className="text-muted-foreground">{PLATFORM_ICONS[conn.platform]}</span>
+                              <h3 className="text-sm font-medium text-foreground">
+                                Give {label} its own workspace
+                              </h3>
+                              {isSaved && <CircleCheck className="w-4 h-4 text-green-600 ml-auto" />}
+                            </div>
+
+                            {!isSaved && (
+                              <>
+                                {conn.platform === "replit" && (
+                                  <div className="space-y-2.5 mb-4">
+                                    <div className="flex items-start gap-2">
+                                      <span className="text-xs font-medium text-foreground/60 w-5 flex-shrink-0 mt-0.5">1.</span>
+                                      <div>
+                                        <p className="text-xs text-muted-foreground">Open your Replit project.</p>
+                                        {project.github_repo_name && (
+                                          <a
+                                            href={`https://replit.com/new/github/${project.github_repo_name}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1.5 mt-1 text-xs text-blue-600 hover:text-blue-700"
+                                          >
+                                            <ExternalLink className="w-3 h-3" />
+                                            Open in Replit
+                                          </a>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                      <span className="text-xs font-medium text-foreground/60 w-5 flex-shrink-0 mt-0.5">2.</span>
+                                      <p className="text-xs text-muted-foreground">
+                                        In Replit, look for the Git panel on the left sidebar (the branch icon). Click it, then click "New branch". Name it: <span className="font-mono font-medium text-foreground/70">replit-agent</span>
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {conn.platform === "claude_code" && (
+                                  <div className="space-y-2.5 mb-4">
+                                    <div className="flex items-start gap-2">
+                                      <span className="text-xs font-medium text-foreground/60 w-5 flex-shrink-0 mt-0.5">1.</span>
+                                      <div className="flex-1">
+                                        <p className="text-xs text-muted-foreground mb-1.5">In your terminal, run this command to create a private workspace:</p>
+                                        <button
+                                          onClick={() => copyToClipboard("git checkout -b claude-code")}
+                                          className="flex items-center gap-2 px-2.5 py-1.5 rounded bg-foreground/5 border border-border text-xs font-mono text-foreground/80 hover:bg-foreground/10 transition-colors"
+                                        >
+                                          <Terminal className="w-3 h-3 flex-shrink-0" />
+                                          git checkout -b claude-code
+                                          <Copy className="w-3 h-3 flex-shrink-0 text-muted-foreground ml-auto" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                      <span className="text-xs font-medium text-foreground/60 w-5 flex-shrink-0 mt-0.5">2.</span>
+                                      <p className="text-xs text-muted-foreground">
+                                        Then start Claude by running: <span className="font-mono font-medium text-foreground/70">claude</span>
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {conn.platform === "computer" && (
+                                  <div className="space-y-2.5 mb-4">
+                                    <div className="flex items-start gap-2">
+                                      <span className="text-xs font-medium text-foreground/60 w-5 flex-shrink-0 mt-0.5">1.</span>
+                                      <div className="flex-1">
+                                        <p className="text-xs text-muted-foreground mb-1.5">In your terminal, create a private workspace:</p>
+                                        <button
+                                          onClick={() => copyToClipboard("git checkout -b computer-use")}
+                                          className="flex items-center gap-2 px-2.5 py-1.5 rounded bg-foreground/5 border border-border text-xs font-mono text-foreground/80 hover:bg-foreground/10 transition-colors"
+                                        >
+                                          <Terminal className="w-3 h-3 flex-shrink-0" />
+                                          git checkout -b computer-use
+                                          <Copy className="w-3 h-3 flex-shrink-0 text-muted-foreground ml-auto" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div className="mb-3">
+                                  <label className="text-[11px] text-muted-foreground block mb-1">What did you name the branch?</label>
+                                  <input
+                                    data-testid={`input-guide-branch-${conn.platform}`}
+                                    type="text"
+                                    value={branchVal}
+                                    onChange={(e) => setGuideBranches((prev) => ({ ...prev, [conn.id]: e.target.value }))}
+                                    placeholder={SUGGESTED_BRANCH[conn.platform]}
+                                    className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground text-sm focus:border-foreground focus:outline-none transition-colors placeholder:text-muted-foreground/30"
+                                  />
+                                </div>
+
+                                <button
+                                  data-testid={`button-guide-save-${conn.platform}`}
+                                  onClick={() => {
+                                    const val = branchVal.trim();
+                                    if (!val) return;
+                                    updateConnectionBranch.mutate(
+                                      { connId: conn.id, branch_name: val },
+                                      {
+                                        onSuccess: () => {
+                                          setGuideSavedIds((prev) => new Set([...prev, conn.id]));
+                                        },
+                                      }
+                                    );
+                                  }}
+                                  disabled={!branchVal.trim() || updateConnectionBranch.isPending}
+                                  className="flex items-center gap-2 px-4 py-2 rounded-md bg-foreground text-background text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+                                >
+                                  {updateConnectionBranch.isPending ? "Saving..." : "Done — update VibeSyncPro"}
+                                </button>
+                              </>
+                            )}
+
+                            {isSaved && (
+                              <p className="text-xs text-green-700 dark:text-green-400 flex items-center gap-1.5">
+                                <Check className="w-3 h-3" />
+                                Updated to <span className="font-mono">{branchVal}</span>
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-8">
+                    <CircleCheck className="w-10 h-10 text-green-600 mx-auto mb-4" />
+                    <h2 data-testid="text-guide-complete" className="text-lg font-medium text-foreground mb-2">
+                      All set! Each AI tool now has its own workspace.
+                    </h2>
+                    <p className="text-sm text-muted-foreground mb-6">
+                      VibeSyncPro will keep them in sync and alert you if they drift apart.
+                    </p>
+                    <button
+                      data-testid="button-guide-close"
+                      onClick={() => {
+                        setShowSetupGuide(false);
+                        setDismissedSharedWarning(true);
+                        localStorage.setItem("vsync_shared_warning_dismissed", "1");
+                      }}
+                      className="px-6 py-2.5 rounded-lg bg-foreground text-background text-sm font-medium hover:opacity-90 transition-opacity"
+                    >
+                      Done
+                    </button>
+                  </div>
+                )}
               </div>
             </motion.div>
           </>
