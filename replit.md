@@ -136,6 +136,18 @@ Per-project timestamped audit trail of sync checks, merges, conflict resolutions
 | `GITHUB_CALLBACK_URL` | OAuth callback URL — **required in production** (set to `https://<slug>.replit.app/auth/github/callback`); defaults to `http://localhost:5000/auth/github/callback` in dev |
 | `SESSION_SECRET` | Express session secret (optional in dev, **required** in production — server exits if missing) |
 
+### Health Check
+
+- `GET /health` — Returns `{ status: "ok", timestamp: "..." }` with HTTP 200. Registered before session middleware (no auth required). Used by Replit VM deployment for uptime monitoring.
+
+### Auth Resilience
+
+- **Global 401 redirect**: When any API call returns 401 (session expired), the frontend clears the query cache and redirects to `/` for re-login. The `/auth/me` query uses `on401: "returnNull"` and is exempt from this redirect.
+- **GitHub token errors**: Two typed error classes in `server/src/routes/github.ts`:
+  - `NoGitHubTokenError` — user has no stored access token
+  - `GitHubTokenRevokedError` — GitHub API returned 401 (token revoked/expired)
+  Both return HTTP 401 with `{ code: "github_token_invalid", message: "..." }` from all route handlers. The global 401 handler on the frontend catches these and redirects to sign-in.
+
 ### Production Deployment
 
 - **Target**: `vm` (always-on) — required because the app uses in-memory sessions (memorystore)

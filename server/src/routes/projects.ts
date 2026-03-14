@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/requireAuth";
 import { storage } from "../../storage";
-import { githubFetch, getAccessToken, GitHubRateLimitError } from "./github";
+import { githubFetch, getAccessToken, GitHubRateLimitError, NoGitHubTokenError, GitHubTokenRevokedError } from "./github";
 import { syncLimiter, scanLimiter } from "../middleware/rateLimiter";
 import type { Project, PlatformConnection, DiscoveredBranch } from "@shared/schema";
 
@@ -226,7 +226,7 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
   try {
     token = await getAccessToken(req.session.userId!);
   } catch {
-    return res.status(401).json({ message: "GitHub access token not found. Please re-authenticate." });
+    return res.status(401).json({ code: "github_token_invalid", message: "GitHub access token not found. Please sign in again." });
   }
 
   const connections = await storage.getConnectionsByProject(projectId);
@@ -237,6 +237,9 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
     const repoInfo = await githubFetch(token, `/repos/${owner}/${repo}`) as { default_branch: string };
     defaultBranch = repoInfo.default_branch;
   } catch (err) {
+    if (err instanceof GitHubTokenRevokedError) {
+      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+    }
     if (err instanceof GitHubRateLimitError) {
       return res.status(429).json({ message: err.message });
     }
@@ -287,6 +290,9 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
         behind_by: comparison.behind_by,
       });
     } catch (err) {
+      if (err instanceof GitHubTokenRevokedError) {
+        return res.status(401).json({ code: "github_token_invalid", message: err.message });
+      }
       if (err instanceof GitHubRateLimitError) {
         return res.status(429).json({ message: err.message });
       }
@@ -430,7 +436,7 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
   try {
     token = await getAccessToken(req.session.userId!);
   } catch {
-    return res.status(401).json({ message: "GitHub access token not found. Please re-authenticate." });
+    return res.status(401).json({ code: "github_token_invalid", message: "GitHub access token not found. Please sign in again." });
   }
 
   const [owner, repo] = project.github_repo_name.split("/");
@@ -440,6 +446,9 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
     const repoInfo = await githubFetch(token, `/repos/${owner}/${repo}`) as { default_branch: string };
     defaultBranch = repoInfo.default_branch;
   } catch (err) {
+    if (err instanceof GitHubTokenRevokedError) {
+      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+    }
     if (err instanceof GitHubRateLimitError) {
       return res.status(429).json({ message: err.message });
     }
@@ -520,6 +529,9 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
       behind_by: comparison.behind_by,
     });
   } catch (err) {
+    if (err instanceof GitHubTokenRevokedError) {
+      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+    }
     if (err instanceof GitHubRateLimitError) {
       return res.status(429).json({ message: err.message });
     }
@@ -708,7 +720,7 @@ router.post("/:id/branches/scan", requireAuth, scanLimiter, async (req, res) => 
   try {
     token = await getAccessToken(req.session.userId!);
   } catch {
-    return res.status(401).json({ message: "GitHub access token not found. Please re-authenticate." });
+    return res.status(401).json({ code: "github_token_invalid", message: "GitHub access token not found. Please sign in again." });
   }
 
   const [owner, repo] = project.github_repo_name.split("/");
@@ -718,6 +730,9 @@ router.post("/:id/branches/scan", requireAuth, scanLimiter, async (req, res) => 
     const repoInfo = await githubFetch(token, `/repos/${owner}/${repo}`) as { default_branch: string };
     defaultBranch = repoInfo.default_branch;
   } catch (err) {
+    if (err instanceof GitHubTokenRevokedError) {
+      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+    }
     if (err instanceof GitHubRateLimitError) {
       return res.status(429).json({ message: err.message });
     }
@@ -789,7 +804,7 @@ router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) =>
   try {
     token = await getAccessToken(req.session.userId!);
   } catch {
-    return res.status(401).json({ message: "GitHub access token not found. Please re-authenticate." });
+    return res.status(401).json({ code: "github_token_invalid", message: "GitHub access token not found. Please sign in again." });
   }
 
   if (action === "assign_to_replit") {
@@ -808,7 +823,10 @@ router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) =>
   try {
     const repoInfo = await githubFetch(token, `/repos/${owner}/${repo}`) as { default_branch: string };
     defaultBranch = repoInfo.default_branch;
-  } catch {
+  } catch (err) {
+    if (err instanceof GitHubTokenRevokedError) {
+      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+    }
     return res.status(502).json({ message: "Failed to fetch repository info from GitHub" });
   }
 
@@ -846,6 +864,9 @@ router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) =>
     await storage.addActivityLog(projectId, "branch_merged", `Branch "${branchName}" merged to ${target}`, { branch: branchName, action, target });
     return res.json({ message: "Branch merged successfully" });
   } catch (err) {
+    if (err instanceof GitHubTokenRevokedError) {
+      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+    }
     const statusCode = (err as { statusCode?: number }).statusCode;
     if (statusCode === 409) {
       const base = action === "merge_to_default" ? defaultBranch : (platform_branch ?? defaultBranch);

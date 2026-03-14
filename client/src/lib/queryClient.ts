@@ -19,8 +19,18 @@ export async function apiRequest(
     credentials: "include",
   });
 
+  if (res.status === 401) {
+    handleGlobal401();
+    throw new Error("Session expired");
+  }
+
   await throwIfResNotOk(res);
   return res;
+}
+
+function handleGlobal401() {
+  queryClient.clear();
+  window.location.href = "/";
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -35,6 +45,11 @@ export const getQueryFn: <T>(options: {
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
+    }
+
+    if (res.status === 401) {
+      handleGlobal401();
+      throw new Error("Session expired");
     }
 
     await throwIfResNotOk(res);

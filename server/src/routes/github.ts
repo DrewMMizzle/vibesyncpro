@@ -6,10 +6,24 @@ import { analyzeLimiter } from "../middleware/rateLimiter";
 const router = Router();
 const GITHUB_API = "https://api.github.com";
 
+class NoGitHubTokenError extends Error {
+  constructor() {
+    super("No GitHub access token found");
+    this.name = "NoGitHubTokenError";
+  }
+}
+
+class GitHubTokenRevokedError extends Error {
+  constructor() {
+    super("Your GitHub access has expired or been revoked. Please sign in again.");
+    this.name = "GitHubTokenRevokedError";
+  }
+}
+
 async function getAccessToken(userId: number): Promise<string> {
   const user = await storage.findUserById(userId);
   if (!user || !user.access_token) {
-    throw new Error("No GitHub access token found");
+    throw new NoGitHubTokenError();
   }
   return user.access_token;
 }
@@ -70,6 +84,9 @@ async function githubFetch(token: string, path: string, options?: { method?: str
     throw err;
   }
   if (!res.ok) {
+    if (res.status === 401) {
+      throw new GitHubTokenRevokedError();
+    }
     if (res.status === 403) {
       const remaining = res.headers.get("x-ratelimit-remaining");
       const resetHeader = res.headers.get("x-ratelimit-reset");
@@ -112,6 +129,9 @@ router.get("/repos", requireAuth, async (req, res) => {
       }))
     );
   } catch (err) {
+    if (err instanceof NoGitHubTokenError || err instanceof GitHubTokenRevokedError) {
+      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+    }
     if (err instanceof GitHubRateLimitError) {
       return res.status(429).json({ message: err.message });
     }
@@ -132,6 +152,9 @@ router.get("/repos/:owner/:repo/branches", requireAuth, async (req, res) => {
 
     return res.json(branches.map((b) => ({ name: b.name })));
   } catch (err) {
+    if (err instanceof NoGitHubTokenError || err instanceof GitHubTokenRevokedError) {
+      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+    }
     if (err instanceof GitHubRateLimitError) {
       return res.status(429).json({ message: err.message });
     }
@@ -165,6 +188,9 @@ router.get("/repos/public", requireAuth, async (req, res) => {
       private: data.private,
     });
   } catch (err) {
+    if (err instanceof NoGitHubTokenError || err instanceof GitHubTokenRevokedError) {
+      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+    }
     if (err instanceof GitHubRateLimitError) {
       return res.status(429).json({ message: err.message });
     }
@@ -198,6 +224,9 @@ router.post("/fork", requireAuth, async (req, res) => {
       private: forked.private,
     });
   } catch (err) {
+    if (err instanceof NoGitHubTokenError || err instanceof GitHubTokenRevokedError) {
+      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+    }
     if (err instanceof GitHubRateLimitError) {
       return res.status(429).json({ message: err.message });
     }
@@ -307,6 +336,9 @@ ${readmeText || "No README found"}`;
       default_branch: repoData.default_branch,
     });
   } catch (err) {
+    if (err instanceof NoGitHubTokenError || err instanceof GitHubTokenRevokedError) {
+      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+    }
     if (err instanceof GitHubRateLimitError) {
       return res.status(429).json({ message: err.message });
     }
@@ -316,5 +348,5 @@ ${readmeText || "No README found"}`;
   }
 });
 
-export { githubFetch, getAccessToken, FetchTimeoutError, GitHubRateLimitError };
+export { githubFetch, getAccessToken, FetchTimeoutError, GitHubRateLimitError, NoGitHubTokenError, GitHubTokenRevokedError };
 export default router;
