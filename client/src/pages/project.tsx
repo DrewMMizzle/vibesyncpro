@@ -170,9 +170,8 @@ export default function ProjectPage() {
   const [showSetupGuide, setShowSetupGuide] = useState(false);
   const [guideBranches, setGuideBranches] = useState<Record<number, string>>({});
   const [guideSavedIds, setGuideSavedIds] = useState<Set<number>>(new Set());
-  const [dismissedSharedWarning, setDismissedSharedWarning] = useState(() => {
-    return localStorage.getItem("vsync_shared_warning_dismissed") === "1";
-  });
+  const [guideTargetConns, setGuideTargetConns] = useState<Connection[]>([]);
+  const [dismissedSharedWarning, setDismissedSharedWarning] = useState(false);
   const { toast } = useToast();
 
   const projectId = params?.id ? parseInt(params.id, 10) : null;
@@ -209,6 +208,13 @@ export default function ProjectPage() {
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, []);
+
+  useEffect(() => {
+    if (projectId) {
+      const dismissed = localStorage.getItem(`vsync_shared_warning_dismissed_${projectId}`) === "1";
+      setDismissedSharedWarning(dismissed);
+    }
+  }, [projectId]);
 
   const linkRepo = useMutation({
     mutationFn: async (repoData: GitHubRepo) => {
@@ -553,15 +559,14 @@ export default function ProjectPage() {
 
   const branchCounts = new Map<string, number>();
   for (const conn of project.platform_connections) {
-    const branch = conn.branch_name ?? "(none)";
-    branchCounts.set(branch, (branchCounts.get(branch) ?? 0) + 1);
+    if (!conn.branch_name) continue;
+    branchCounts.set(conn.branch_name, (branchCounts.get(conn.branch_name) ?? 0) + 1);
   }
   const hasSharedBranch = project.platform_connections.length >= 2 &&
-    [...branchCounts.values()].some((count) => count >= 2);
+    Array.from(branchCounts.values()).some((count) => count >= 2);
   const sharedBranchConnections = hasSharedBranch
     ? project.platform_connections.filter((c) => {
-        const branch = c.branch_name ?? "(none)";
-        return (branchCounts.get(branch) ?? 0) >= 2;
+        return c.branch_name !== null && (branchCounts.get(c.branch_name) ?? 0) >= 2;
       })
     : [];
 
@@ -578,17 +583,19 @@ export default function ProjectPage() {
   };
 
   const openSetupGuide = () => {
+    const snapshot = [...sharedBranchConnections];
     const initial: Record<number, string> = {};
-    for (const conn of sharedBranchConnections) {
+    for (const conn of snapshot) {
       initial[conn.id] = SUGGESTED_BRANCH[conn.platform] ?? "";
     }
+    setGuideTargetConns(snapshot);
     setGuideBranches(initial);
     setGuideSavedIds(new Set());
     setShowSetupGuide(true);
   };
 
-  const allGuideConnectionsSaved = sharedBranchConnections.length > 0 &&
-    sharedBranchConnections.every((c) => guideSavedIds.has(c.id));
+  const allGuideConnectionsSaved = guideTargetConns.length > 0 &&
+    guideTargetConns.every((c) => guideSavedIds.has(c.id));
 
   return (
     <div className="min-h-screen bg-background">
@@ -844,7 +851,7 @@ export default function ProjectPage() {
                 data-testid="button-dismiss-shared-warning"
                 onClick={() => {
                   setDismissedSharedWarning(true);
-                  localStorage.setItem("vsync_shared_warning_dismissed", "1");
+                  if (projectId) localStorage.setItem(`vsync_shared_warning_dismissed_${projectId}`, "1");
                 }}
                 className="text-yellow-600/50 hover:text-yellow-600 transition-colors flex-shrink-0"
               >
@@ -1334,7 +1341,7 @@ export default function ProjectPage() {
                               <p data-testid={`activity-time-${entry.id}`} className="text-[10px] text-muted-foreground/60">
                                 {timeAgo(entry.created_at)}
                               </p>
-                              {entry.metadata && typeof entry.metadata === "object" && (entry.metadata as Record<string, unknown>).branch && (
+                              {typeof entry.metadata === "object" && entry.metadata !== null && !!(entry.metadata as Record<string, unknown>).branch && (
                                 <span className="text-[10px] text-muted-foreground/50 flex items-center gap-0.5">
                                   <GitBranch className="w-2.5 h-2.5" />
                                   {String((entry.metadata as Record<string, unknown>).branch)}
@@ -1663,7 +1670,7 @@ export default function ProjectPage() {
                     </div>
 
                     <div className="space-y-5">
-                      {sharedBranchConnections.map((conn) => {
+                      {guideTargetConns.map((conn) => {
                         const label = PLATFORM_LABELS[conn.platform];
                         const isSaved = guideSavedIds.has(conn.id);
                         const branchVal = guideBranches[conn.id] ?? "";
@@ -1777,7 +1784,7 @@ export default function ProjectPage() {
                                       { connId: conn.id, branch_name: val },
                                       {
                                         onSuccess: () => {
-                                          setGuideSavedIds((prev) => new Set([...prev, conn.id]));
+                                          setGuideSavedIds((prev) => new Set(Array.from(prev).concat(conn.id)));
                                         },
                                       }
                                     );
@@ -1815,7 +1822,7 @@ export default function ProjectPage() {
                       onClick={() => {
                         setShowSetupGuide(false);
                         setDismissedSharedWarning(true);
-                        localStorage.setItem("vsync_shared_warning_dismissed", "1");
+                        if (projectId) localStorage.setItem(`vsync_shared_warning_dismissed_${projectId}`, "1");
                       }}
                       className="px-6 py-2.5 rounded-lg bg-foreground text-background text-sm font-medium hover:opacity-90 transition-opacity"
                     >
