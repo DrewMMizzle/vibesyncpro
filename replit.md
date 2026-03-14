@@ -133,7 +133,7 @@ Per-project timestamped audit trail of sync checks, merges, conflict resolutions
 | `DATABASE_URL` | PostgreSQL connection string (required at startup) |
 | `GITHUB_CLIENT_ID` | GitHub OAuth app client ID (required for auth) |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth app client secret (required for auth) |
-| `GITHUB_CALLBACK_URL` | OAuth callback URL (optional, defaults to localhost:5000) |
+| `GITHUB_CALLBACK_URL` | OAuth callback URL — **required in production** (set to `https://<slug>.replit.app/auth/github/callback`); defaults to `http://localhost:5000/auth/github/callback` in dev |
 | `SESSION_SECRET` | Express session secret (optional in dev, **required** in production — server exits if missing) |
 
 ### Production Deployment
