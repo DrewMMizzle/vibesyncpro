@@ -13,17 +13,40 @@ async function getAccessToken(userId: number): Promise<string> {
   return user.access_token;
 }
 
+const FETCH_TIMEOUT_MS = 10_000;
+
+class FetchTimeoutError extends Error {
+  constructor(url: string) {
+    super(`Request timed out after ${FETCH_TIMEOUT_MS}ms: ${url}`);
+    this.name = "FetchTimeoutError";
+  }
+}
+
+function createTimeoutSignal(): AbortSignal {
+  return AbortSignal.timeout(FETCH_TIMEOUT_MS);
+}
+
 async function githubFetch(token: string, path: string, options?: { method?: string; body?: Record<string, unknown> }) {
-  const res = await fetch(`${GITHUB_API}${path}`, {
-    method: options?.method ?? "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      ...(options?.body ? { "Content-Type": "application/json" } : {}),
-    },
-    ...(options?.body ? { body: JSON.stringify(options.body) } : {}),
-  });
+  const url = `${GITHUB_API}${path}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: options?.method ?? "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        ...(options?.body ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(options?.body ? { body: JSON.stringify(options.body) } : {}),
+      signal: createTimeoutSignal(),
+    });
+  } catch (err) {
+    if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
+      throw new FetchTimeoutError(url);
+    }
+    throw err;
+  }
   if (!res.ok) {
     const body = await res.text();
     const error = new Error(`GitHub API error ${res.status}: ${body}`);
@@ -197,9 +220,10 @@ Root files: ${rootFiles.join(", ") || "unknown"}
 README (first 4000 chars):
 ${readmeText || "No README found"}`;
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
-      {
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
+    let geminiRes: Response;
+    try {
+      geminiRes = await fetch(geminiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -210,8 +234,14 @@ ${readmeText || "No README found"}`;
             maxOutputTokens: 512,
           },
         }),
+        signal: createTimeoutSignal(),
+      });
+    } catch (err) {
+      if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
+        throw new FetchTimeoutError(geminiUrl);
       }
-    );
+      throw err;
+    }
 
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
@@ -242,5 +272,5 @@ ${readmeText || "No README found"}`;
   }
 });
 
-export { githubFetch, getAccessToken };
+export { githubFetch, getAccessToken, FetchTimeoutError };
 export default router;

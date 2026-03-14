@@ -73,20 +73,37 @@ router.get("/github/callback", async (req, res) => {
   const callbackUrl =
     process.env.GITHUB_CALLBACK_URL || "http://localhost:5000/auth/github/callback";
 
+  const OAUTH_TIMEOUT_MS = 10_000;
+
   try {
-    const tokenResponse = await fetch(GITHUB_TOKEN_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        client_id: clientId,
-        client_secret: clientSecret,
-        code,
-        redirect_uri: callbackUrl,
-      }),
-    });
+    const oauthController = new AbortController();
+    const oauthTimeout = setTimeout(() => oauthController.abort(), OAUTH_TIMEOUT_MS);
+
+    let tokenResponse: Response;
+    try {
+      tokenResponse = await fetch(GITHUB_TOKEN_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+          redirect_uri: callbackUrl,
+        }),
+        signal: oauthController.signal,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        console.error("OAuth token exchange timed out");
+        return res.redirect("/?error=oauth_timeout");
+      }
+      throw err;
+    } finally {
+      clearTimeout(oauthTimeout);
+    }
 
     if (!tokenResponse.ok) {
       return res.status(502).json({ message: "Failed to exchange code for token" });
@@ -106,12 +123,27 @@ router.get("/github/callback", async (req, res) => {
 
     const accessToken = tokenData.access_token;
 
-    const userResponse = await fetch(GITHUB_USER_URL, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/json",
-      },
-    });
+    const userController = new AbortController();
+    const userTimeout = setTimeout(() => userController.abort(), OAUTH_TIMEOUT_MS);
+
+    let userResponse: Response;
+    try {
+      userResponse = await fetch(GITHUB_USER_URL, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+        },
+        signal: userController.signal,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        console.error("GitHub user info fetch timed out");
+        return res.redirect("/?error=oauth_timeout");
+      }
+      throw err;
+    } finally {
+      clearTimeout(userTimeout);
+    }
 
     if (!userResponse.ok) {
       return res.status(502).json({ message: "Failed to fetch GitHub user info" });
