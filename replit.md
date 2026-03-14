@@ -134,7 +134,19 @@ Per-project timestamped audit trail of sync checks, merges, conflict resolutions
 | `GITHUB_CLIENT_ID` | GitHub OAuth app client ID (required for auth) |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth app client secret (required for auth) |
 | `GITHUB_CALLBACK_URL` | OAuth callback URL (optional, defaults to localhost:5000) |
-| `SESSION_SECRET` | Express session secret (optional, has dev default) |
+| `SESSION_SECRET` | Express session secret (optional in dev, **required** in production — server exits if missing) |
+
+### Production Deployment
+
+- **Target**: `vm` (always-on) — required because the app uses in-memory sessions (memorystore)
+- **Build**: `npm run build` (Vite client + esbuild server → `dist/index.cjs`)
+- **Run**: `node dist/index.cjs`
+- **GitHub OAuth callback**: After publishing, add the production callback URL to your GitHub OAuth app's **Authorization callback URL** list:
+  ```
+  https://<your-repl-slug>.replit.app/auth/github/callback
+  ```
+  (The dev callback URL `https://<dev-domain>/auth/github/callback` should remain for local development.)
+- **Required secrets in production**: `DATABASE_URL`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `SESSION_SECRET`
 
 ### Key Third-Party Libraries
 
