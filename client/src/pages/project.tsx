@@ -559,16 +559,18 @@ export default function ProjectPage() {
   ) ?? [];
 
   const DEFAULT_BRANCH_KEY = "__default__";
+  const normalizeBranch = (b: string | null) =>
+    !b || (defaultBranch && b === defaultBranch) ? DEFAULT_BRANCH_KEY : b;
   const branchCounts = new Map<string, number>();
   for (const conn of project.platform_connections) {
-    const key = conn.branch_name ?? DEFAULT_BRANCH_KEY;
+    const key = normalizeBranch(conn.branch_name);
     branchCounts.set(key, (branchCounts.get(key) ?? 0) + 1);
   }
   const hasSharedBranch = project.platform_connections.length >= 2 &&
     Array.from(branchCounts.values()).some((count) => count >= 2);
   const sharedBranchConnections = hasSharedBranch
     ? project.platform_connections.filter((c) => {
-        const key = c.branch_name ?? DEFAULT_BRANCH_KEY;
+        const key = normalizeBranch(c.branch_name);
         return (branchCounts.get(key) ?? 0) >= 2;
       })
     : [];
@@ -1002,10 +1004,10 @@ export default function ProjectPage() {
                               setEditingBranchConnId(conn.id);
                               setEditBranchValue(SUGGESTED_BRANCH[conn.platform] ?? "");
                             }}
-                            className="text-xs text-muted-foreground/50 mt-0.5 flex items-center gap-1 hover:text-blue-600 transition-colors group"
+                            className="text-xs text-muted-foreground/50 mt-0.5 flex items-center gap-1 hover:text-blue-600 transition-colors"
                           >
                             No branch set
-                            <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                            <span className="flex items-center gap-0.5 text-blue-500">
                               <Plus className="w-2.5 h-2.5" />
                               Set branch
                             </span>
