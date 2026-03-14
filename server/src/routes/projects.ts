@@ -69,6 +69,17 @@ router.post("/", requireAuth, async (req, res) => {
 
   const { name, description, github_repo_url, github_repo_name, connections: connInputs } = parsed.data;
 
+  if (github_repo_name && github_repo_name.includes("/")) {
+    try {
+      await getAccessToken(req.session.userId!);
+    } catch (err) {
+      if (err instanceof NoGitHubTokenError) {
+        return res.status(401).json({ code: "github_token_missing", message: err.message });
+      }
+      return res.status(401).json({ code: "github_token_missing", message: "GitHub access token not found. Please sign in again." });
+    }
+  }
+
   const project = await storage.createProject(req.session.userId!, name.trim(), description?.trim() || null);
 
   if (github_repo_name || github_repo_url) {
@@ -91,7 +102,6 @@ router.post("/", requireAuth, async (req, res) => {
 
   const allConns = await storage.getConnectionsByProject(project.id);
 
-  let initialSyncWarning: string | undefined;
   if (github_repo_name && github_repo_name.includes("/") && allConns.length > 0) {
     try {
       const token = await getAccessToken(req.session.userId!);
@@ -123,8 +133,9 @@ router.post("/", requireAuth, async (req, res) => {
         }
       }
     } catch (err) {
-      if (err instanceof NoGitHubTokenError || err instanceof GitHubTokenRevokedError) {
-        initialSyncWarning = err.message;
+      if (err instanceof GitHubTokenRevokedError) {
+        // Token was valid at pre-check but revoked during sync — log but don't fail
+        console.error("Token revoked during initial sync:", err.message);
       }
       // initial sync failed — project still created successfully
     }
@@ -137,8 +148,7 @@ router.post("/", requireAuth, async (req, res) => {
 
   const finalConns = await storage.getConnectionsByProject(project.id);
   const finalProject = await storage.getProjectById(project.id);
-  const result = formatProject(finalProject!, finalConns);
-  return res.status(201).json(initialSyncWarning ? { ...result, warning: initialSyncWarning } : result);
+  return res.status(201).json(formatProject(finalProject!, finalConns));
 });
 
 // GET /api/projects/:id
