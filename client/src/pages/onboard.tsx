@@ -63,7 +63,7 @@ const PATH_CARDS: { id: EntryPath; icon: typeof Globe; title: string; desc: stri
 function getStepsForPath(path: EntryPath): StepId[] {
   switch (path) {
     case "fresh":
-      return ["name", "agents", "review"];
+      return ["name", "repo", "agents", "review"];
     case "fork":
       return ["fork_url", "analyze", "agents", "name", "review"];
     case "replit":
@@ -528,8 +528,13 @@ export default function OnboardPage() {
                     Back
                   </button>
                   <h1 data-testid="text-heading-repo" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
-                    Which repo?
+                    {entryPath === "fresh" ? "Connect to GitHub" : "Which repo?"}
                   </h1>
+                  {entryPath === "fresh" && (
+                    <p className="text-sm text-muted-foreground mt-2">
+                      VibeSyncPro handles the version control for you — just pick a repo and we'll keep your agents in sync. No git knowledge needed.
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex gap-2 mb-1">
@@ -623,6 +628,16 @@ export default function OnboardPage() {
                       </p>
                     )}
                   </div>
+                )}
+
+                {entryPath === "fresh" && (
+                  <button
+                    data-testid="button-skip-repo"
+                    onClick={() => { setSelectedRepo(null); setAnalysisResult(null); goNext(); }}
+                    className="text-sm text-muted-foreground hover:text-foreground transition-colors self-start"
+                  >
+                    Skip — I'll connect a repo later
+                  </button>
                 )}
               </motion.div>
             )}
@@ -848,6 +863,44 @@ export default function OnboardPage() {
                   <p className="text-sm text-muted-foreground mt-2">
                     {agentsSubtext}
                   </p>
+                </div>
+
+                {/* GitHub repo card — always shown at top of agents step */}
+                <div
+                  data-testid="card-github-repo"
+                  className={`rounded-lg border p-4 flex items-center gap-4 ${selectedRepo ? "border-foreground/30 bg-foreground/[0.02]" : "border-dashed border-border"}`}
+                >
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${selectedRepo ? "bg-foreground text-background" : "bg-muted text-muted-foreground"}`}>
+                    <Github className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-foreground text-sm">GitHub Repository</p>
+                    {selectedRepo ? (
+                      <p className="text-xs text-muted-foreground truncate">{selectedRepo.full_name}</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Where your agents' code lives — not connected yet</p>
+                    )}
+                  </div>
+                  {selectedRepo ? (
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <Check className="w-4 h-4 text-foreground/40" />
+                      <button
+                        data-testid="button-change-repo"
+                        onClick={goBack}
+                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        Change
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      data-testid="button-connect-repo-from-agents"
+                      onClick={goBack}
+                      className="flex-shrink-0 text-xs border border-border rounded px-2.5 py-1 text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+                    >
+                      Connect
+                    </button>
+                  )}
                 </div>
 
                 <div className="space-y-3">
