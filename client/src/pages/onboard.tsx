@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   ArrowRight, ArrowLeft, Check, Sparkles, Github, GitFork,
   Monitor, Bot, Globe, GitBranch, Zap, Search, Loader2,
+  ExternalLink, Copy, Terminal,
 } from "lucide-react";
 
 type Platform = "replit" | "claude_code" | "computer";
@@ -383,12 +384,18 @@ export default function OnboardPage() {
       ? "Choose which AI tools you plan to use. You can set up branches later."
       : hasAgentBranches
         ? "Toggle which AI platforms are active and pick their branches."
-        : "Choose your AI tools — branches will be set up automatically when they start working.";
+        : "Choose which AI tools you plan to use. We'll show you how to get each one started.";
     if (preselectedLabel) {
       return `${preselectedLabel} has been pre-selected below. Toggle others if needed. ${contextLine}`;
     }
     return contextLine;
   })();
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      toast({ title: "Copied!", description: text.length > 60 ? text.slice(0, 60) + "…" : text });
+    });
+  };
 
   return (
     <div className="min-h-screen w-full flex flex-col bg-background">
@@ -913,9 +920,88 @@ export default function OnboardPage() {
                                     </select>
                                   </>
                                 ) : (
-                                  <p data-testid={`text-branch-auto-${p}`} className="text-xs text-muted-foreground/70 italic">
-                                    A branch will be set up automatically when this agent starts working
-                                  </p>
+                                  <div className="flex flex-col gap-3">
+                                    {p === "replit" && selectedRepo && (
+                                      <>
+                                        <p data-testid="text-launch-replit" className="text-xs text-muted-foreground">
+                                          Import this repo into Replit to get started.
+                                        </p>
+                                        <a
+                                          data-testid="link-open-replit"
+                                          href={`https://replit.com/new/github/${selectedRepo.full_name}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-foreground/5 border border-border text-sm font-medium text-foreground hover:bg-foreground/10 transition-colors self-start"
+                                        >
+                                          <ExternalLink className="w-3.5 h-3.5" />
+                                          Open in Replit
+                                        </a>
+                                        <p className="text-[11px] text-muted-foreground/60">
+                                          Replit will create a branch automatically — come back and scan for it once your agent is running.
+                                        </p>
+                                      </>
+                                    )}
+                                    {p === "claude_code" && selectedRepo && (
+                                      <>
+                                        <p data-testid="text-launch-claude" className="text-xs text-muted-foreground">
+                                          Run Claude Code in the cloned repo.
+                                        </p>
+                                        <button
+                                          data-testid="button-copy-claude-cmd"
+                                          onClick={() => copyToClipboard(`git clone ${selectedRepo.html_url} && cd ${selectedRepo.name} && claude`)}
+                                          className="flex items-center gap-2 px-3 py-2 rounded-md bg-foreground/5 border border-border text-xs font-mono text-foreground/80 hover:bg-foreground/10 transition-colors self-start"
+                                        >
+                                          <Terminal className="w-3.5 h-3.5 flex-shrink-0" />
+                                          <span className="truncate">git clone {selectedRepo.html_url} && cd {selectedRepo.name} && claude</span>
+                                          <Copy className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />
+                                        </button>
+                                        <p className="text-[11px] text-muted-foreground/60">
+                                          Name the branch you'll use (e.g. claude-code) and come back to link it once your agent is running.
+                                        </p>
+                                      </>
+                                    )}
+                                    {p === "computer" && selectedRepo && (
+                                      <>
+                                        <p data-testid="text-launch-computer" className="text-xs text-muted-foreground">
+                                          Clone the repo and point your agent at a new branch.
+                                        </p>
+                                        <button
+                                          data-testid="button-copy-repo-url"
+                                          onClick={() => copyToClipboard(selectedRepo.html_url)}
+                                          className="flex items-center gap-2 px-3 py-2 rounded-md bg-foreground/5 border border-border text-xs font-mono text-foreground/80 hover:bg-foreground/10 transition-colors self-start"
+                                        >
+                                          <Copy className="w-3.5 h-3.5 flex-shrink-0" />
+                                          <span className="truncate">{selectedRepo.html_url}</span>
+                                        </button>
+                                        <p className="text-[11px] text-muted-foreground/60">
+                                          Come back and link the branch once your agent is running.
+                                        </p>
+                                      </>
+                                    )}
+                                    {!selectedRepo && (
+                                      <p className="text-xs text-muted-foreground/70 italic">
+                                        No repo linked — you can set up branches later from your project page.
+                                      </p>
+                                    )}
+                                    {selectedRepo && (
+                                      <>
+                                        <div className="mt-1">
+                                          <label className="text-[11px] text-muted-foreground/60 block mb-1">Planned branch name (optional)</label>
+                                          <input
+                                            data-testid={`input-planned-branch-${p}`}
+                                            type="text"
+                                            value={setup.branch_name ?? ""}
+                                            onChange={(e) => setBranchForPlatform(p, e.target.value || null)}
+                                            placeholder={p === "replit" ? "replit-agent" : p === "claude_code" ? "claude-code" : "my-branch"}
+                                            className="w-full px-3 py-1.5 rounded-md border border-border bg-background text-foreground text-xs focus:border-foreground focus:outline-none transition-colors placeholder:text-muted-foreground/30"
+                                          />
+                                        </div>
+                                        <p className="text-[11px] text-muted-foreground/50">
+                                          You can always connect branches later from your project page.
+                                        </p>
+                                      </>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             </motion.div>
@@ -926,14 +1012,25 @@ export default function OnboardPage() {
                   })}
                 </div>
 
-                <button
-                  data-testid="button-next-agents"
-                  onClick={goNext}
-                  className="group flex items-center gap-3 px-8 py-4 rounded-full text-base font-medium bg-foreground text-background shadow-lg cursor-pointer transition-all duration-300 ease-out self-start"
-                >
-                  Continue
-                  <ArrowRight className="w-5 h-5 transition-transform duration-300 group-hover:translate-x-1" />
-                </button>
+                <div className="flex items-center gap-6">
+                  <button
+                    data-testid="button-next-agents"
+                    onClick={goNext}
+                    className="group flex items-center gap-3 px-8 py-4 rounded-full text-base font-medium bg-foreground text-background shadow-lg cursor-pointer transition-all duration-300 ease-out"
+                  >
+                    Continue
+                    <ArrowRight className="w-5 h-5 transition-transform duration-300 group-hover:translate-x-1" />
+                  </button>
+                  {enabledPlatforms.length === 0 && (
+                    <button
+                      data-testid="button-skip-agents"
+                      onClick={goNext}
+                      className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Skip — I'll connect agents later
+                    </button>
+                  )}
+                </div>
               </motion.div>
             )}
 
