@@ -4,6 +4,11 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { sessionMiddleware, authRouter, usersRouter, projectsRouter, githubRouter } from "./src/index";
 
+if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
+  console.error("FATAL: SESSION_SECRET environment variable is required in production. Exiting.");
+  process.exit(1);
+}
+
 const app = express();
 const httpServer = createServer(app);
 
