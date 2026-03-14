@@ -51,14 +51,15 @@ router.get("/", requireAuth, async (req, res) => {
 
 // POST /api/projects
 router.post("/", requireAuth, async (req, res) => {
+  const REPO_NAME_RE = /^[^/]+\/[^/]+$/;
   const bodySchema = z.object({
-    name: z.string().trim().min(1, "Project name is required"),
-    description: z.string().optional().nullable(),
+    name: z.string().trim().min(1, "Project name is required").max(200, "Project name must be 200 characters or fewer"),
+    description: z.string().max(5000, "Description must be 5,000 characters or fewer").optional().nullable(),
     github_repo_url: z.string().optional().nullable(),
     github_repo_name: z.string().optional().nullable(),
     connections: z.array(z.object({
       platform: z.enum(VALID_PLATFORMS),
-      branch_name: z.string().nullable(),
+      branch_name: z.string().max(255, "Branch name must be 255 characters or fewer").nullable(),
     })).optional(),
   });
   const parsed = bodySchema.safeParse(req.body);
@@ -68,6 +69,18 @@ router.post("/", requireAuth, async (req, res) => {
   }
 
   const { name, description, github_repo_url, github_repo_name, connections: connInputs } = parsed.data;
+
+  if (github_repo_name && !REPO_NAME_RE.test(github_repo_name)) {
+    return res.status(400).json({ message: "Invalid repository name format. Expected owner/repo" });
+  }
+
+  if (connInputs) {
+    for (const c of connInputs) {
+      if (c.branch_name !== null && c.branch_name !== undefined && c.branch_name.trim() === "") {
+        return res.status(400).json({ message: "Branch name cannot be blank" });
+      }
+    }
+  }
 
   if (github_repo_name && github_repo_name.includes("/")) {
     try {
@@ -176,11 +189,14 @@ router.patch("/:id", requireAuth, async (req, res) => {
   const bodySchema = z.object({
     github_repo_url: z.string().optional().nullable(),
     github_repo_name: z.string().optional().nullable(),
-    name: z.string().min(1).optional(),
-    description: z.string().optional().nullable(),
+    name: z.string().min(1, "Project name is required").max(200, "Project name must be 200 characters or fewer").optional(),
+    description: z.string().max(5000, "Description must be 5,000 characters or fewer").optional().nullable(),
   });
   const parsed = bodySchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: "Invalid fields" });
+  if (!parsed.success) {
+    const firstError = parsed.error.issues[0];
+    return res.status(400).json({ message: firstError?.message || "Invalid fields" });
+  }
 
   const data = { ...parsed.data };
   if (data.name !== undefined) {
@@ -189,6 +205,11 @@ router.patch("/:id", requireAuth, async (req, res) => {
   }
   if (data.description !== undefined && data.description !== null) {
     data.description = data.description.trim() || null;
+  }
+  if (data.github_repo_name !== undefined && data.github_repo_name !== null) {
+    if (!/^[^/]+\/[^/]+$/.test(data.github_repo_name)) {
+      return res.status(400).json({ message: "Invalid repository name format. Expected owner/repo" });
+    }
   }
 
   const updated = await storage.updateProject(projectId, data);
@@ -364,12 +385,19 @@ router.post("/:id/connections", requireAuth, async (req, res) => {
 
   const bodySchema = z.object({
     platform: z.enum(VALID_PLATFORMS),
-    branch_name: z.string().optional().nullable(),
+    branch_name: z.string().max(255, "Branch name must be 255 characters or fewer").optional().nullable(),
   });
   const parsed = bodySchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: "Invalid platform" });
+  if (!parsed.success) {
+    const firstError = parsed.error.issues[0];
+    return res.status(400).json({ message: firstError?.message || "Invalid platform" });
+  }
 
   const { platform, branch_name } = parsed.data;
+
+  if (branch_name !== undefined && branch_name !== null && branch_name.trim() === "") {
+    return res.status(400).json({ message: "Branch name cannot be blank" });
+  }
 
   if (project.github_repo_name && !branch_name) {
     return res.status(400).json({ message: "Branch name is required when a GitHub repo is linked" });
@@ -404,10 +432,17 @@ router.patch("/:id/connections/:connId", requireAuth, async (req, res) => {
   if (!conn || conn.project_id !== projectId) return res.status(404).json({ message: "Connection not found" });
 
   const bodySchema = z.object({
-    branch_name: z.string().optional().nullable(),
+    branch_name: z.string().max(255, "Branch name must be 255 characters or fewer").optional().nullable(),
   });
   const parsed = bodySchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: "Invalid fields" });
+  if (!parsed.success) {
+    const firstError = parsed.error.issues[0];
+    return res.status(400).json({ message: firstError?.message || "Invalid fields" });
+  }
+
+  if (parsed.data.branch_name !== undefined && parsed.data.branch_name !== null && parsed.data.branch_name.trim() === "") {
+    return res.status(400).json({ message: "Branch name cannot be blank" });
+  }
 
   const updated = await storage.updateConnection(connId, parsed.data);
   if (!updated) return res.status(404).json({ message: "Connection not found" });
