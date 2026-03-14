@@ -337,16 +337,7 @@ export default function OnboardPage() {
         body.connections = connections;
       }
 
-      const res = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const errBody = await res.json();
-        throw new Error(errBody.message || "Failed to create project");
-      }
+      const res = await apiRequest("POST", "/api/projects", body);
       const project = await res.json() as { id: number };
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
       navigate(`/projects/${project.id}?launched=1`);

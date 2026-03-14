@@ -386,6 +386,16 @@ export default function ProjectPage() {
         credentials: "include",
         body: JSON.stringify({ action }),
       });
+      if (res.status === 401) {
+        const body = await res.json();
+        if (body.code === "github_token_missing" || body.code === "github_token_revoked") {
+          const { GitHubTokenError } = await import("@/lib/queryClient");
+          throw new GitHubTokenError(body.message);
+        }
+        queryClient.clear();
+        window.location.href = "/";
+        throw new Error("Session expired");
+      }
       if (!res.ok) {
         const body = await res.json();
         if (res.status === 409 && body.conflict_url) {
@@ -481,6 +491,16 @@ export default function ProjectPage() {
         credentials: "include",
         body: JSON.stringify({ action, platform_branch }),
       });
+      if (res.status === 401) {
+        const body = await res.json();
+        if (body.code === "github_token_missing" || body.code === "github_token_revoked") {
+          const { GitHubTokenError } = await import("@/lib/queryClient");
+          throw new GitHubTokenError(body.message);
+        }
+        queryClient.clear();
+        window.location.href = "/";
+        throw new Error("Session expired");
+      }
       if (!res.ok) {
         const body = await res.json();
         if (res.status === 409 && body.conflict_url) {
