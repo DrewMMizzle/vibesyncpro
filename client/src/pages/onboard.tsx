@@ -12,7 +12,14 @@ import {
 
 type Platform = "replit" | "claude_code" | "computer";
 type EntryPath = "fresh" | "replit" | "claude_code" | "existing" | "fork";
-type StepId = "picker" | "repo" | "fork_url" | "agents" | "name" | "review";
+type StepId = "picker" | "repo" | "fork_url" | "analyze" | "agents" | "name" | "review";
+
+interface AnalysisResult {
+  summary: string;
+  stack: string[];
+  repo_name: string;
+  default_branch: string;
+}
 
 interface GitHubRepo {
   name: string;
@@ -57,11 +64,11 @@ function getStepsForPath(path: EntryPath): StepId[] {
     case "fresh":
       return ["name", "agents", "review"];
     case "fork":
-      return ["fork_url", "agents", "name", "review"];
+      return ["fork_url", "analyze", "agents", "name", "review"];
     case "replit":
     case "claude_code":
     case "existing":
-      return ["repo", "agents", "name", "review"];
+      return ["repo", "analyze", "agents", "name", "review"];
   }
 }
 
@@ -109,6 +116,7 @@ export default function OnboardPage() {
     computer: { enabled: false, branch_name: null },
   });
   const [isLaunching, setIsLaunching] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   const steps = useMemo<StepId[]>(() => {
@@ -191,6 +199,25 @@ export default function OnboardPage() {
     },
   });
 
+  const analyzeRepoMutation = useMutation({
+    mutationFn: async (repoFullName: string) => {
+      const res = await apiRequest("POST", "/api/github/repos/analyze", { repo_full_name: repoFullName });
+      return res.json() as Promise<AnalysisResult>;
+    },
+    onSuccess: (data) => {
+      setAnalysisResult(data);
+      if (!projectName.trim() && data.repo_name) {
+        setProjectName(data.repo_name.replace(/[-_]/g, " "));
+      }
+    },
+  });
+
+  useEffect(() => {
+    if (currentStep === "analyze" && selectedRepo && !analysisResult && !analyzeRepoMutation.isPending && !analyzeRepoMutation.isError) {
+      analyzeRepoMutation.mutate(selectedRepo.full_name);
+    }
+  }, [currentStep, selectedRepo]);
+
   const filteredRepos = repos?.filter((r) =>
     r.full_name.toLowerCase().includes(repoSearch.toLowerCase())
   ) ?? [];
@@ -228,6 +255,8 @@ export default function OnboardPage() {
 
   const handleSelectRepo = (repo: GitHubRepo) => {
     setSelectedRepo(repo);
+    setAnalysisResult(null);
+    analyzeRepoMutation.reset();
     goNext();
   };
 
@@ -236,6 +265,8 @@ export default function OnboardPage() {
     try {
       const repo = await lookupPublicRepo.mutateAsync(existingRepoUrl.trim());
       setSelectedRepo(repo);
+      setAnalysisResult(null);
+      analyzeRepoMutation.reset();
       goNext();
     } catch (err) {
       toast({ title: "Couldn't find that repo", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
@@ -263,6 +294,8 @@ export default function OnboardPage() {
     try {
       const forked = await forkRepoMutation.mutateAsync(resolvedForkRepo.full_name);
       setSelectedRepo(forked);
+      setAnalysisResult(null);
+      analyzeRepoMutation.reset();
       toast({ title: "Forked!", description: `Forked ${resolvedForkRepo.full_name} to your account as ${forked.full_name} — ready to connect agents` });
       goNext();
     } catch (err) {
@@ -685,6 +718,107 @@ export default function OnboardPage() {
                         <GitFork className="w-4 h-4" />
                       )}
                       Fork to my account & continue
+                    </button>
+                  </motion.div>
+                )}
+              </motion.div>
+            )}
+
+            {/* ANALYZE step */}
+            {currentStep === "analyze" && (
+              <motion.div
+                key="analyze"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20, filter: "blur(4px)" }}
+                transition={transition}
+                className="flex flex-col gap-8"
+              >
+                <div>
+                  <button
+                    data-testid="button-back-analyze"
+                    onClick={goBack}
+                    className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    Back
+                  </button>
+                  <h1 data-testid="text-heading-analyze" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
+                    Understanding your project
+                  </h1>
+                </div>
+
+                {analyzeRepoMutation.isPending && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    data-testid="status-analyze-loading"
+                    className="flex flex-col items-center gap-4 py-12 text-muted-foreground"
+                  >
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                    <p className="text-sm">Reading your codebase…</p>
+                  </motion.div>
+                )}
+
+                {analysisResult && !analyzeRepoMutation.isPending && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4 }}
+                    data-testid="card-analyze-result"
+                    className="flex flex-col gap-6"
+                  >
+                    <div className="p-5 rounded-xl border border-border bg-foreground/[0.02]">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Sparkles className="w-4 h-4 text-muted-foreground/60" />
+                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">What we found</span>
+                      </div>
+                      <p data-testid="text-analyze-summary" className="text-base text-foreground/80 leading-relaxed">
+                        {analysisResult.summary}
+                      </p>
+                      {analysisResult.stack.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-4">
+                          {analysisResult.stack.map((tech) => (
+                            <span
+                              key={tech}
+                              data-testid={`badge-stack-${tech}`}
+                              className="px-3 py-1 rounded-full text-xs font-medium bg-foreground/8 text-foreground/70 border border-border"
+                            >
+                              {tech}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      data-testid="button-analyze-continue"
+                      onClick={goNext}
+                      className="group flex items-center gap-3 px-8 py-4 rounded-full bg-foreground text-background text-base font-medium shadow-lg transition-all duration-300 ease-out self-start"
+                    >
+                      That's right, continue
+                      <ArrowRight className="w-5 h-5 transition-transform duration-300 group-hover:translate-x-1" />
+                    </button>
+                  </motion.div>
+                )}
+
+                {analyzeRepoMutation.isError && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    data-testid="status-analyze-error"
+                    className="flex flex-col gap-5"
+                  >
+                    <p className="text-sm text-muted-foreground">
+                      Couldn't analyze the repo automatically — no worries, you can continue as normal.
+                    </p>
+                    <button
+                      data-testid="button-analyze-skip"
+                      onClick={goNext}
+                      className="group flex items-center gap-3 px-8 py-4 rounded-full bg-foreground text-background text-base font-medium shadow-lg transition-all duration-300 ease-out self-start"
+                    >
+                      Continue anyway
+                      <ArrowRight className="w-5 h-5 transition-transform duration-300 group-hover:translate-x-1" />
                     </button>
                   </motion.div>
                 )}
