@@ -14,7 +14,7 @@ async function handle401(res: Response): Promise<never> {
     parsed = JSON.parse(text);
   } catch { /* not JSON */ }
 
-  if (parsed?.code === "github_token_invalid") {
+  if (parsed?.code === "github_token_missing" || parsed?.code === "github_token_revoked") {
     throw new GitHubTokenError(parsed.message ?? "Your GitHub access has expired. Please sign in again.");
   }
 
