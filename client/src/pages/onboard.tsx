@@ -340,6 +340,11 @@ export default function OnboardPage() {
       ? "Claude Code has been pre-selected below. Toggle others if needed."
       : null;
 
+  const nonDefaultBranches = branches?.filter(
+    (b) => b.name !== selectedRepo?.default_branch
+  ) ?? [];
+  const hasAgentBranches = nonDefaultBranches.length > 0;
+
   return (
     <div className="min-h-screen w-full flex flex-col bg-background">
       <header className="absolute top-0 left-0 right-0 p-6 sm:p-8 z-10 flex items-center justify-between">
@@ -694,14 +699,15 @@ export default function OnboardPage() {
                     Back
                   </button>
                   <h1 data-testid="text-heading-agents" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
-                    Who's working on it?
+                    What would you like to connect?
                   </h1>
                   <p className="text-sm text-muted-foreground mt-2">
                     {pathNote || (
-                      <>
-                        Toggle which AI platforms are active on this project and pick their branches.
-                        {!selectedRepo && " (You can add these later after linking a repo.)"}
-                      </>
+                      !selectedRepo
+                        ? "Choose which AI tools you plan to use. You can set up branches later."
+                        : hasAgentBranches
+                          ? "Toggle which AI platforms are active and pick their branches."
+                          : "Choose your AI tools — branches are created automatically when they start working."
                     )}
                   </p>
                 </div>
@@ -746,23 +752,31 @@ export default function OnboardPage() {
                               className="overflow-hidden"
                             >
                               <div className="px-4 pb-4 pt-1">
-                                <label className="text-xs text-muted-foreground mb-1.5 block">Branch</label>
-                                <select
-                                  data-testid={`select-branch-${p}`}
-                                  value={setup.branch_name ?? ""}
-                                  onChange={(e) => setBranchForPlatform(p, e.target.value || null)}
-                                  className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground text-sm focus:border-foreground focus:outline-none transition-colors"
-                                >
-                                  <option value="">No branch selected</option>
-                                  {sorted.map((b) => {
-                                    const isSuggested = AI_BRANCH_PATTERNS[p].some((pat) => pat.test(b.name));
-                                    return (
-                                      <option key={b.name} value={b.name}>
-                                        {isSuggested ? `★ ${b.name}` : b.name}
-                                      </option>
-                                    );
-                                  })}
-                                </select>
+                                {hasAgentBranches ? (
+                                  <>
+                                    <label className="text-xs text-muted-foreground mb-1.5 block">Branch</label>
+                                    <select
+                                      data-testid={`select-branch-${p}`}
+                                      value={setup.branch_name ?? ""}
+                                      onChange={(e) => setBranchForPlatform(p, e.target.value || null)}
+                                      className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground text-sm focus:border-foreground focus:outline-none transition-colors"
+                                    >
+                                      <option value="">No branch selected</option>
+                                      {sorted.map((b) => {
+                                        const isSuggested = AI_BRANCH_PATTERNS[p].some((pat) => pat.test(b.name));
+                                        return (
+                                          <option key={b.name} value={b.name}>
+                                            {isSuggested ? `★ ${b.name}` : b.name}
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                  </>
+                                ) : (
+                                  <p data-testid={`text-branch-auto-${p}`} className="text-xs text-muted-foreground/70 italic">
+                                    A branch will be created automatically when this agent starts working
+                                  </p>
+                                )}
                               </div>
                             </motion.div>
                           )}
