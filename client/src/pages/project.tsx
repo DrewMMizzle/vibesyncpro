@@ -598,8 +598,15 @@ export default function ProjectPage() {
     setShowSetupGuide(true);
   };
 
+  const savedGuideValues = guideTargetConns
+    .filter((c) => guideSavedIds.has(c.id))
+    .map((c) => guideBranches[c.id]?.trim() ?? "");
+  const allSavedGuideUnique = savedGuideValues.length > 0 &&
+    new Set(savedGuideValues).size === savedGuideValues.length &&
+    savedGuideValues.every((v) => v.length > 0);
   const allGuideConnectionsSaved = guideTargetConns.length > 0 &&
-    guideTargetConns.every((c) => guideSavedIds.has(c.id));
+    guideTargetConns.every((c) => guideSavedIds.has(c.id)) &&
+    allSavedGuideUnique;
 
   return (
     <div className="min-h-screen bg-background">
@@ -995,10 +1002,13 @@ export default function ProjectPage() {
                               setEditingBranchConnId(conn.id);
                               setEditBranchValue(SUGGESTED_BRANCH[conn.platform] ?? "");
                             }}
-                            className="text-xs text-blue-600 mt-0.5 flex items-center gap-1 hover:text-blue-700 transition-colors"
+                            className="text-xs text-muted-foreground/50 mt-0.5 flex items-center gap-1 hover:text-blue-600 transition-colors group"
                           >
-                            <Plus className="w-3 h-3" />
-                            Set branch
+                            No branch set
+                            <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                              <Plus className="w-2.5 h-2.5" />
+                              Set branch
+                            </span>
                           </button>
                         )}
                       </div>
@@ -1805,6 +1815,13 @@ export default function ProjectPage() {
                                   onClick={() => {
                                     const val = branchVal.trim();
                                     if (!val) return;
+                                    const alreadyUsed = guideTargetConns
+                                      .filter((c) => c.id !== conn.id && guideSavedIds.has(c.id))
+                                      .some((c) => (guideBranches[c.id]?.trim() ?? "") === val);
+                                    if (alreadyUsed) {
+                                      toast({ title: "Branch name already used", description: "Each AI tool needs a unique branch name. Pick a different one.", variant: "destructive" });
+                                      return;
+                                    }
                                     updateConnectionBranch.mutate(
                                       { connId: conn.id, branch_name: val },
                                       {
