@@ -146,7 +146,7 @@ Per-project timestamped audit trail of sync checks, merges, conflict resolutions
   https://<your-repl-slug>.replit.app/auth/github/callback
   ```
   (The dev callback URL `https://<dev-domain>/auth/github/callback` should remain for local development.)
-- **Required secrets in production**: `DATABASE_URL`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `SESSION_SECRET`
+- **Required secrets in production**: `DATABASE_URL`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_CALLBACK_URL`, `SESSION_SECRET`
 
 ### Key Third-Party Libraries
 
