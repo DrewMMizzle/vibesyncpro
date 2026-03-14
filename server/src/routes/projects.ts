@@ -2,7 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/requireAuth";
 import { storage } from "../../storage";
-import { githubFetch, getAccessToken } from "./github";
+import { githubFetch, getAccessToken, GitHubRateLimitError } from "./github";
+import { syncLimiter, scanLimiter } from "../middleware/rateLimiter";
 import type { Project, PlatformConnection, DiscoveredBranch } from "@shared/schema";
 
 const router = Router();
@@ -209,7 +210,7 @@ router.get("/:id/activity", requireAuth, async (req, res) => {
 });
 
 // POST /api/projects/:id/sync — compare branches via GitHub API and update statuses
-router.post("/:id/sync", requireAuth, async (req, res) => {
+router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
   const projectId = parseInt(req.params.id as string, 10);
   if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
 
@@ -235,7 +236,10 @@ router.post("/:id/sync", requireAuth, async (req, res) => {
   try {
     const repoInfo = await githubFetch(token, `/repos/${owner}/${repo}`) as { default_branch: string };
     defaultBranch = repoInfo.default_branch;
-  } catch {
+  } catch (err) {
+    if (err instanceof GitHubRateLimitError) {
+      return res.status(429).json({ message: err.message });
+    }
     return res.status(502).json({ message: "Failed to fetch repository info from GitHub" });
   }
 
@@ -283,6 +287,9 @@ router.post("/:id/sync", requireAuth, async (req, res) => {
         behind_by: comparison.behind_by,
       });
     } catch (err) {
+      if (err instanceof GitHubRateLimitError) {
+        return res.status(429).json({ message: err.message });
+      }
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
       console.error(`Sync error for connection ${conn.id}:`, errorMessage);
       errors.push({ id: conn.id, platform: conn.platform, error: errorMessage });
@@ -428,7 +435,10 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
   try {
     const repoInfo = await githubFetch(token, `/repos/${owner}/${repo}`) as { default_branch: string };
     defaultBranch = repoInfo.default_branch;
-  } catch {
+  } catch (err) {
+    if (err instanceof GitHubRateLimitError) {
+      return res.status(429).json({ message: err.message });
+    }
     return res.status(502).json({ message: "Failed to fetch repository info from GitHub" });
   }
 
@@ -506,6 +516,9 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
       behind_by: comparison.behind_by,
     });
   } catch (err) {
+    if (err instanceof GitHubRateLimitError) {
+      return res.status(429).json({ message: err.message });
+    }
     const statusCode = (err as { statusCode?: number }).statusCode;
     if (statusCode === 409) {
       const base = action === "merge_to_default" ? defaultBranch : branchName;
@@ -675,7 +688,7 @@ async function runBranchScan(projectId: number, token: string, owner: string, re
 }
 
 // POST /api/projects/:id/branches/scan — discover unregistered branches
-router.post("/:id/branches/scan", requireAuth, async (req, res) => {
+router.post("/:id/branches/scan", requireAuth, scanLimiter, async (req, res) => {
   const projectId = parseInt(req.params.id as string, 10);
   if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
 
@@ -700,7 +713,10 @@ router.post("/:id/branches/scan", requireAuth, async (req, res) => {
   try {
     const repoInfo = await githubFetch(token, `/repos/${owner}/${repo}`) as { default_branch: string };
     defaultBranch = repoInfo.default_branch;
-  } catch {
+  } catch (err) {
+    if (err instanceof GitHubRateLimitError) {
+      return res.status(429).json({ message: err.message });
+    }
     return res.status(502).json({ message: "Failed to fetch repository info from GitHub" });
   }
 
@@ -708,6 +724,9 @@ router.post("/:id/branches/scan", requireAuth, async (req, res) => {
     const discovered = await runBranchScan(projectId, token, owner, repo, defaultBranch);
     return res.json({ discovered_branches: discovered });
   } catch (err) {
+    if (err instanceof GitHubRateLimitError) {
+      return res.status(429).json({ message: err.message });
+    }
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     console.error(`Branch scan error for project ${projectId}:`, errorMessage);
     return res.status(502).json({ message: "Failed to scan branches from GitHub" });
