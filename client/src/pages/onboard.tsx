@@ -334,16 +334,28 @@ export default function OnboardPage() {
 
   const enabledPlatforms = (Object.entries(platforms) as [Platform, PlatformSetup][]).filter(([, v]) => v.enabled);
 
-  const pathNote = entryPath === "replit"
-    ? "Replit Agent has been pre-selected below. Toggle others if needed."
-    : entryPath === "claude_code"
-      ? "Claude Code has been pre-selected below. Toggle others if needed."
-      : null;
-
   const nonDefaultBranches = branches?.filter(
     (b) => b.name !== selectedRepo?.default_branch
   ) ?? [];
   const hasAgentBranches = nonDefaultBranches.length > 0;
+
+  const preselectedLabel = entryPath === "replit"
+    ? "Replit Agent"
+    : entryPath === "claude_code"
+      ? "Claude Code"
+      : null;
+
+  const agentsSubtext = (() => {
+    const contextLine = !selectedRepo
+      ? "Choose which AI tools you plan to use. You can set up branches later."
+      : hasAgentBranches
+        ? "Toggle which AI platforms are active and pick their branches."
+        : "Choose your AI tools — branches will be set up automatically when they start working.";
+    if (preselectedLabel) {
+      return `${preselectedLabel} has been pre-selected below. Toggle others if needed. ${contextLine}`;
+    }
+    return contextLine;
+  })();
 
   return (
     <div className="min-h-screen w-full flex flex-col bg-background">
@@ -702,13 +714,7 @@ export default function OnboardPage() {
                     What would you like to connect?
                   </h1>
                   <p className="text-sm text-muted-foreground mt-2">
-                    {pathNote || (
-                      !selectedRepo
-                        ? "Choose which AI tools you plan to use. You can set up branches later."
-                        : hasAgentBranches
-                          ? "Toggle which AI platforms are active and pick their branches."
-                          : "Choose your AI tools — branches are created automatically when they start working."
-                    )}
+                    {agentsSubtext}
                   </p>
                 </div>
 
@@ -774,7 +780,7 @@ export default function OnboardPage() {
                                   </>
                                 ) : (
                                   <p data-testid={`text-branch-auto-${p}`} className="text-xs text-muted-foreground/70 italic">
-                                    A branch will be created automatically when this agent starts working
+                                    A branch will be set up automatically when this agent starts working
                                   </p>
                                 )}
                               </div>
