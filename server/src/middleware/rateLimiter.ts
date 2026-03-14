@@ -12,7 +12,7 @@ export const syncLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   validate: { ip: false },
-  message: { message: "Too many syncs — please wait a few minutes before trying again" },
+  message: { message: "Too many syncs — please wait 5 minutes before trying again" },
 });
 
 export const scanLimiter = rateLimit({
@@ -22,7 +22,7 @@ export const scanLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   validate: { ip: false },
-  message: { message: "Too many branch scans — please wait about 10 minutes before trying again" },
+  message: { message: "Too many branch scans — please wait 10 minutes before trying again" },
 });
 
 export const analyzeLimiter = rateLimit({
@@ -32,5 +32,5 @@ export const analyzeLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   validate: { ip: false },
-  message: { message: "Too many analysis requests — please wait about an hour before trying again" },
+  message: { message: "Too many analysis requests — please wait 1 hour before trying again" },
 });
