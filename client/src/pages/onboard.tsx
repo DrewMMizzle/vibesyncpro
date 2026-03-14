@@ -934,7 +934,7 @@ export default function OnboardPage() {
                                           className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-foreground/5 border border-border text-sm font-medium text-foreground hover:bg-foreground/10 transition-colors self-start"
                                         >
                                           <ExternalLink className="w-3.5 h-3.5" />
-                                          Open in Replit
+                                          Open in Replit →
                                         </a>
                                         <p className="text-[11px] text-muted-foreground/60">
                                           Replit will create a branch automatically — come back and scan for it once your agent is running.
@@ -1035,7 +1035,7 @@ export default function OnboardPage() {
                     }}
                     className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                   >
-                    Skip — I'll connect agents later
+                    Skip — I'll connect agents after creating the project
                   </button>
                 </div>
               </motion.div>
