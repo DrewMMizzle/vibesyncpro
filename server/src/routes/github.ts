@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/requireAuth";
 import { storage } from "../../storage";
+import { analyzeLimiter } from "../middleware/rateLimiter";
 
 const router = Router();
 const GITHUB_API = "https://api.github.com";
@@ -32,6 +33,17 @@ class FetchTimeoutError extends Error {
   }
 }
 
+class GitHubRateLimitError extends Error {
+  resetAt: Date;
+  constructor(resetTimestamp: number) {
+    const resetDate = new Date(resetTimestamp * 1000);
+    const timeStr = resetDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    super(`GitHub API rate limit reached. Resets at ${timeStr}.`);
+    this.name = "GitHubRateLimitError";
+    this.resetAt = resetDate;
+  }
+}
+
 function createTimeoutSignal(): AbortSignal {
   return AbortSignal.timeout(FETCH_TIMEOUT_MS);
 }
@@ -58,6 +70,13 @@ async function githubFetch(token: string, path: string, options?: { method?: str
     throw err;
   }
   if (!res.ok) {
+    if (res.status === 403) {
+      const remaining = res.headers.get("x-ratelimit-remaining");
+      const resetHeader = res.headers.get("x-ratelimit-reset");
+      if (remaining === "0" && resetHeader) {
+        throw new GitHubRateLimitError(parseInt(resetHeader, 10));
+      }
+    }
     const body = await res.text();
     const error = new Error(`GitHub API error ${res.status}: ${body}`);
     (error as GitHubApiError).statusCode = res.status;
@@ -93,6 +112,9 @@ router.get("/repos", requireAuth, async (req, res) => {
       }))
     );
   } catch (err) {
+    if (err instanceof GitHubRateLimitError) {
+      return res.status(429).json({ message: err.message });
+    }
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("GitHub repos error:", message);
     return res.status(502).json({ message: "Failed to fetch repos from GitHub" });
@@ -110,6 +132,9 @@ router.get("/repos/:owner/:repo/branches", requireAuth, async (req, res) => {
 
     return res.json(branches.map((b) => ({ name: b.name })));
   } catch (err) {
+    if (err instanceof GitHubRateLimitError) {
+      return res.status(429).json({ message: err.message });
+    }
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("GitHub branches error:", message);
     return res.status(502).json({ message: "Failed to fetch branches from GitHub" });
@@ -140,6 +165,9 @@ router.get("/repos/public", requireAuth, async (req, res) => {
       private: data.private,
     });
   } catch (err) {
+    if (err instanceof GitHubRateLimitError) {
+      return res.status(429).json({ message: err.message });
+    }
     const ghErr = err as GitHubApiError;
     if (ghErr.statusCode === 404) {
       return res.status(404).json({ message: "Repository not found" });
@@ -170,13 +198,16 @@ router.post("/fork", requireAuth, async (req, res) => {
       private: forked.private,
     });
   } catch (err) {
+    if (err instanceof GitHubRateLimitError) {
+      return res.status(429).json({ message: err.message });
+    }
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("GitHub fork error:", message);
     return res.status(502).json({ message: "Failed to fork repository" });
   }
 });
 
-router.post("/repos/analyze", requireAuth, async (req, res) => {
+router.post("/repos/analyze", requireAuth, analyzeLimiter, async (req, res) => {
   const { repo_full_name } = req.body as { repo_full_name?: string };
   if (!repo_full_name || !repo_full_name.includes("/")) {
     return res.status(400).json({ message: "repo_full_name is required (owner/repo)" });
@@ -276,11 +307,14 @@ ${readmeText || "No README found"}`;
       default_branch: repoData.default_branch,
     });
   } catch (err) {
+    if (err instanceof GitHubRateLimitError) {
+      return res.status(429).json({ message: err.message });
+    }
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("Analyze error:", message);
     return res.status(502).json({ message: "Failed to analyze repository" });
   }
 });
 
-export { githubFetch, getAccessToken, FetchTimeoutError };
+export { githubFetch, getAccessToken, FetchTimeoutError, GitHubRateLimitError };
 export default router;
