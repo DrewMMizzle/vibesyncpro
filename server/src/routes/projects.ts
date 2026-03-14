@@ -316,13 +316,17 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
   }
 
   let discoveredBranchesList: ReturnType<typeof formatDiscoveredBranch>[] = [];
+  let rateLimitWarning: string | undefined;
   try {
     discoveredBranchesList = await runBranchScan(projectId, token, owner, repo, defaultBranch);
   } catch (err) {
+    if (err instanceof GitHubRateLimitError) {
+      rateLimitWarning = err.message;
+    }
     console.error(`Auto-scan after sync failed for project ${projectId}:`, err instanceof Error ? err.message : "Unknown error");
   }
 
-  return res.json({ synced: errors.length === 0, errors, connections: results, default_branch: defaultBranch, discovered_branches: discoveredBranchesList });
+  return res.json({ synced: errors.length === 0, errors, connections: results, default_branch: defaultBranch, discovered_branches: discoveredBranchesList, ...(rateLimitWarning ? { warning: rateLimitWarning } : {}) });
 });
 
 // POST /api/projects/:id/connections
