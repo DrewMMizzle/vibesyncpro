@@ -225,8 +225,11 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
   let token: string;
   try {
     token = await getAccessToken(req.session.userId!);
-  } catch {
-    return res.status(401).json({ code: "github_token_invalid", message: "GitHub access token not found. Please sign in again." });
+  } catch (err) {
+    if (err instanceof NoGitHubTokenError) {
+      return res.status(401).json({ code: "github_token_missing", message: err.message });
+    }
+    return res.status(401).json({ code: "github_token_missing", message: "GitHub access token not found. Please sign in again." });
   }
 
   const connections = await storage.getConnectionsByProject(projectId);
@@ -238,7 +241,7 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
     defaultBranch = repoInfo.default_branch;
   } catch (err) {
     if (err instanceof GitHubTokenRevokedError) {
-      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+      return res.status(401).json({ code: "github_token_revoked", message: err.message });
     }
     if (err instanceof GitHubRateLimitError) {
       return res.status(429).json({ message: err.message });
@@ -291,7 +294,7 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
       });
     } catch (err) {
       if (err instanceof GitHubTokenRevokedError) {
-        return res.status(401).json({ code: "github_token_invalid", message: err.message });
+        return res.status(401).json({ code: "github_token_revoked", message: err.message });
       }
       if (err instanceof GitHubRateLimitError) {
         return res.status(429).json({ message: err.message });
@@ -435,8 +438,11 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
   let token: string;
   try {
     token = await getAccessToken(req.session.userId!);
-  } catch {
-    return res.status(401).json({ code: "github_token_invalid", message: "GitHub access token not found. Please sign in again." });
+  } catch (err) {
+    if (err instanceof NoGitHubTokenError) {
+      return res.status(401).json({ code: "github_token_missing", message: err.message });
+    }
+    return res.status(401).json({ code: "github_token_missing", message: "GitHub access token not found. Please sign in again." });
   }
 
   const [owner, repo] = project.github_repo_name.split("/");
@@ -447,7 +453,7 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
     defaultBranch = repoInfo.default_branch;
   } catch (err) {
     if (err instanceof GitHubTokenRevokedError) {
-      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+      return res.status(401).json({ code: "github_token_revoked", message: err.message });
     }
     if (err instanceof GitHubRateLimitError) {
       return res.status(429).json({ message: err.message });
@@ -530,7 +536,7 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
     });
   } catch (err) {
     if (err instanceof GitHubTokenRevokedError) {
-      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+      return res.status(401).json({ code: "github_token_revoked", message: err.message });
     }
     if (err instanceof GitHubRateLimitError) {
       return res.status(429).json({ message: err.message });
@@ -719,8 +725,11 @@ router.post("/:id/branches/scan", requireAuth, scanLimiter, async (req, res) => 
   let token: string;
   try {
     token = await getAccessToken(req.session.userId!);
-  } catch {
-    return res.status(401).json({ code: "github_token_invalid", message: "GitHub access token not found. Please sign in again." });
+  } catch (err) {
+    if (err instanceof NoGitHubTokenError) {
+      return res.status(401).json({ code: "github_token_missing", message: err.message });
+    }
+    return res.status(401).json({ code: "github_token_missing", message: "GitHub access token not found. Please sign in again." });
   }
 
   const [owner, repo] = project.github_repo_name.split("/");
@@ -731,7 +740,7 @@ router.post("/:id/branches/scan", requireAuth, scanLimiter, async (req, res) => 
     defaultBranch = repoInfo.default_branch;
   } catch (err) {
     if (err instanceof GitHubTokenRevokedError) {
-      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+      return res.status(401).json({ code: "github_token_revoked", message: err.message });
     }
     if (err instanceof GitHubRateLimitError) {
       return res.status(429).json({ message: err.message });
@@ -803,8 +812,11 @@ router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) =>
   let token: string;
   try {
     token = await getAccessToken(req.session.userId!);
-  } catch {
-    return res.status(401).json({ code: "github_token_invalid", message: "GitHub access token not found. Please sign in again." });
+  } catch (err) {
+    if (err instanceof NoGitHubTokenError) {
+      return res.status(401).json({ code: "github_token_missing", message: err.message });
+    }
+    return res.status(401).json({ code: "github_token_missing", message: "GitHub access token not found. Please sign in again." });
   }
 
   if (action === "assign_to_replit") {
@@ -825,7 +837,7 @@ router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) =>
     defaultBranch = repoInfo.default_branch;
   } catch (err) {
     if (err instanceof GitHubTokenRevokedError) {
-      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+      return res.status(401).json({ code: "github_token_revoked", message: err.message });
     }
     return res.status(502).json({ message: "Failed to fetch repository info from GitHub" });
   }
@@ -865,7 +877,7 @@ router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) =>
     return res.json({ message: "Branch merged successfully" });
   } catch (err) {
     if (err instanceof GitHubTokenRevokedError) {
-      return res.status(401).json({ code: "github_token_invalid", message: err.message });
+      return res.status(401).json({ code: "github_token_revoked", message: err.message });
     }
     const statusCode = (err as { statusCode?: number }).statusCode;
     if (statusCode === 409) {

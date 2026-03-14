@@ -144,9 +144,9 @@ Per-project timestamped audit trail of sync checks, merges, conflict resolutions
 
 - **Global 401 redirect**: When any API call returns 401 (session expired), the frontend clears the query cache and redirects to `/` for re-login. The `/auth/me` query uses `on401: "returnNull"` and is exempt from this redirect.
 - **GitHub token errors**: Two typed error classes in `server/src/routes/github.ts`:
-  - `NoGitHubTokenError` — user has no stored access token
-  - `GitHubTokenRevokedError` — GitHub API returned 401 (token revoked/expired)
-  Both return HTTP 401 with `{ code: "github_token_invalid", message: "..." }` from all route handlers. The global 401 handler on the frontend catches these and redirects to sign-in.
+  - `NoGitHubTokenError` — user has no stored access token → HTTP 401 `{ code: "github_token_missing" }`
+  - `GitHubTokenRevokedError` — GitHub API returned 401 (token revoked/expired) → HTTP 401 `{ code: "github_token_revoked" }`
+  Frontend detects both codes in `queryClient.ts`, throws `GitHubTokenError` (instead of redirecting), and a global listener in `App.tsx` shows a destructive toast with a "Sign in again" button that initiates OAuth re-auth.
 
 ### Production Deployment
 
