@@ -171,6 +171,7 @@ export default function ProjectPage() {
   const [guideBranches, setGuideBranches] = useState<Record<number, string>>({});
   const [guideSavedIds, setGuideSavedIds] = useState<Set<number>>(new Set());
   const [guideTargetConns, setGuideTargetConns] = useState<Connection[]>([]);
+  const [guideIntroDone, setGuideIntroDone] = useState(false);
   const [dismissedSharedWarning, setDismissedSharedWarning] = useState(false);
   const { toast } = useToast();
 
@@ -557,16 +558,18 @@ export default function ProjectPage() {
     r.full_name.toLowerCase().includes(repoSearch.toLowerCase())
   ) ?? [];
 
+  const DEFAULT_BRANCH_KEY = "__default__";
   const branchCounts = new Map<string, number>();
   for (const conn of project.platform_connections) {
-    if (!conn.branch_name) continue;
-    branchCounts.set(conn.branch_name, (branchCounts.get(conn.branch_name) ?? 0) + 1);
+    const key = conn.branch_name ?? DEFAULT_BRANCH_KEY;
+    branchCounts.set(key, (branchCounts.get(key) ?? 0) + 1);
   }
   const hasSharedBranch = project.platform_connections.length >= 2 &&
     Array.from(branchCounts.values()).some((count) => count >= 2);
   const sharedBranchConnections = hasSharedBranch
     ? project.platform_connections.filter((c) => {
-        return c.branch_name !== null && (branchCounts.get(c.branch_name) ?? 0) >= 2;
+        const key = c.branch_name ?? DEFAULT_BRANCH_KEY;
+        return (branchCounts.get(key) ?? 0) >= 2;
       })
     : [];
 
@@ -591,6 +594,7 @@ export default function ProjectPage() {
     setGuideTargetConns(snapshot);
     setGuideBranches(initial);
     setGuideSavedIds(new Set());
+    setGuideIntroDone(false);
     setShowSetupGuide(true);
   };
 
@@ -1648,26 +1652,47 @@ export default function ProjectPage() {
                   <X className="w-5 h-5" />
                 </button>
 
-                {!allGuideConnectionsSaved ? (
-                  <>
-                    <h2 data-testid="text-guide-heading" className="text-xl font-medium text-foreground pr-8">
+                {!guideIntroDone ? (
+                  <motion.div
+                    key="guide-intro"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <div className="flex items-center justify-center w-14 h-14 rounded-full bg-yellow-100 dark:bg-yellow-950/50 mb-6">
+                      <Lightbulb className="w-7 h-7 text-yellow-500" />
+                    </div>
+                    <h2 data-testid="text-guide-heading" className="text-xl font-medium text-foreground pr-8 mb-3">
+                      What's a working copy?
+                    </h2>
+                    <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+                      Think of your project like a shared notebook. Right now, your AI tools are all writing in the same notebook at the same time — which can cause one to overwrite another's work.
+                    </p>
+                    <p className="text-sm text-muted-foreground leading-relaxed mb-8">
+                      We're going to give each tool its own private copy. When they're done, VibeSyncPro combines everything back together automatically. No technical knowledge needed.
+                    </p>
+                    <button
+                      data-testid="button-guide-start"
+                      onClick={() => setGuideIntroDone(true)}
+                      className="flex items-center gap-2 px-6 py-3 rounded-lg bg-foreground text-background text-sm font-medium hover:opacity-90 transition-opacity"
+                    >
+                      Got it, let's start
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </motion.div>
+                ) : !allGuideConnectionsSaved ? (
+                  <motion.div
+                    key="guide-platforms"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <h2 data-testid="text-guide-platforms-heading" className="text-xl font-medium text-foreground pr-8 mb-2">
                       Let's give each AI tool its own workspace
                     </h2>
-                    <p className="text-sm text-muted-foreground mt-2 mb-6">
-                      Right now, your tools are editing the same copy of your code. We'll fix that in a few steps — no technical knowledge needed.
+                    <p className="text-sm text-muted-foreground mb-6">
+                      Follow the steps below for each tool. Come back here when you're done.
                     </p>
-
-                    <div className="p-4 rounded-lg bg-foreground/[0.02] border border-border mb-6">
-                      <div className="flex items-start gap-3">
-                        <Lightbulb className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium text-foreground">What's a working copy?</p>
-                          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                            Think of your project as a shared notebook. Right now, all your AI tools are writing in the same notebook at the same time — which can cause a mess. We're going to give each tool its own private notebook. When they're done, VibeSyncPro combines their work back into your main notebook automatically.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
 
                     <div className="space-y-5">
                       {guideTargetConns.map((conn) => {
@@ -1807,7 +1832,7 @@ export default function ProjectPage() {
                         );
                       })}
                     </div>
-                  </>
+                  </motion.div>
                 ) : (
                   <div className="text-center py-8">
                     <CircleCheck className="w-10 h-10 text-green-600 mx-auto mb-4" />
