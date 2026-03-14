@@ -29,6 +29,10 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+app.get("/health", (_req, res) => {
+  return res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
 // Session and auth
 app.use(sessionMiddleware);
 app.use("/auth", authRouter);
