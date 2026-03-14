@@ -93,6 +93,14 @@ async function githubFetch(token: string, path: string, options?: { method?: str
       if (remaining === "0" && resetHeader) {
         throw new GitHubRateLimitError(parseInt(resetHeader, 10));
       }
+      const body = await res.text();
+      const lower = body.toLowerCase();
+      if (lower.includes("bad credentials") || lower.includes("token") || lower.includes("authorization")) {
+        throw new GitHubTokenRevokedError();
+      }
+      const error = new Error(`GitHub API error ${res.status}: ${body}`);
+      (error as GitHubApiError).statusCode = res.status;
+      throw error;
     }
     const body = await res.text();
     const error = new Error(`GitHub API error ${res.status}: ${body}`);
