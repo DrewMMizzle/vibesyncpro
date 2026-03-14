@@ -566,6 +566,8 @@ interface GitHubCommitDetail {
   commit: { committer: { date: string } | null; author: { date: string } | null };
 }
 
+const MAX_SCAN_BRANCHES = 50;
+
 async function runBranchScan(projectId: number, token: string, owner: string, repo: string, defaultBranch: string) {
   const connections = await storage.getConnectionsByProject(projectId);
   const registeredBranches = new Set<string>();
@@ -587,9 +589,16 @@ async function runBranchScan(projectId: number, token: string, owner: string, re
   }
 
   const unregistered = allBranches.filter((b) => !registeredBranches.has(b.name));
+
+  // Cap unregistered branches to avoid excessive API calls on large repos
+  const capped = unregistered.slice(0, MAX_SCAN_BRANCHES);
+  if (unregistered.length > MAX_SCAN_BRANCHES) {
+    console.warn(`Branch scan for project ${projectId}: ${unregistered.length} unregistered branches found, processing first ${MAX_SCAN_BRANCHES}`);
+  }
+
   const discoveredNames: string[] = [];
 
-  for (const branch of unregistered) {
+  for (const branch of capped) {
     discoveredNames.push(branch.name);
 
     const existing = await storage.getDiscoveredBranchByName(projectId, branch.name);
@@ -607,7 +616,6 @@ async function runBranchScan(projectId: number, token: string, owner: string, re
       aheadByDefault = comparison.ahead_by;
       behindByDefault = comparison.behind_by;
     } catch {
-      // skip comparison errors
     }
 
     let likelyPlatform: string | null = null;
@@ -628,7 +636,6 @@ async function runBranchScan(projectId: number, token: string, owner: string, re
           behindByParent = cmp.behind_by;
         }
       } catch {
-        // skip comparison errors
       }
     }
 
@@ -641,7 +648,6 @@ async function runBranchScan(projectId: number, token: string, owner: string, re
       const dateStr = commitDetail.commit?.committer?.date ?? commitDetail.commit?.author?.date;
       if (dateStr) lastCommitAt = new Date(dateStr);
     } catch {
-      // skip commit detail errors
     }
 
     const updateFields: { likely_platform: string | null; ahead_by_default: number; behind_by_default: number; ahead_by_parent: number; behind_by_parent: number; last_commit_sha: string; last_commit_at: Date | null; last_seen_at: Date; dismissed_at?: null } = {
