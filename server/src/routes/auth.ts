@@ -42,7 +42,13 @@ router.get("/github", (req, res) => {
     state,
   });
 
-  return res.redirect(`${GITHUB_AUTH_URL}?${params.toString()}`);
+  req.session.save((err) => {
+    if (err) {
+      console.error("Failed to save session before OAuth redirect:", err);
+      return res.status(500).json({ message: "Session error" });
+    }
+    return res.redirect(`${GITHUB_AUTH_URL}?${params.toString()}`);
+  });
 });
 
 router.get("/github/callback", async (req, res) => {
