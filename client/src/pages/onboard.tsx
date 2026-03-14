@@ -1013,23 +1013,30 @@ export default function OnboardPage() {
                 </div>
 
                 <div className="flex items-center gap-6">
-                  <button
-                    data-testid="button-next-agents"
-                    onClick={goNext}
-                    className="group flex items-center gap-3 px-8 py-4 rounded-full text-base font-medium bg-foreground text-background shadow-lg cursor-pointer transition-all duration-300 ease-out"
-                  >
-                    Continue
-                    <ArrowRight className="w-5 h-5 transition-transform duration-300 group-hover:translate-x-1" />
-                  </button>
-                  {enabledPlatforms.length === 0 && (
+                  {enabledPlatforms.length > 0 && (
                     <button
-                      data-testid="button-skip-agents"
+                      data-testid="button-next-agents"
                       onClick={goNext}
-                      className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                      className="group flex items-center gap-3 px-8 py-4 rounded-full text-base font-medium bg-foreground text-background shadow-lg cursor-pointer transition-all duration-300 ease-out"
                     >
-                      Skip — I'll connect agents later
+                      Continue
+                      <ArrowRight className="w-5 h-5 transition-transform duration-300 group-hover:translate-x-1" />
                     </button>
                   )}
+                  <button
+                    data-testid="button-skip-agents"
+                    onClick={() => {
+                      setPlatforms({
+                        replit: { enabled: false, branch_name: null },
+                        claude_code: { enabled: false, branch_name: null },
+                        computer: { enabled: false, branch_name: null },
+                      });
+                      goNext();
+                    }}
+                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Skip — I'll connect agents later
+                  </button>
                 </div>
               </motion.div>
             )}
