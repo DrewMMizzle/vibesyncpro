@@ -143,5 +143,104 @@ router.post("/fork", requireAuth, async (req, res) => {
   }
 });
 
+router.post("/repos/analyze", requireAuth, async (req, res) => {
+  const { repo_full_name } = req.body as { repo_full_name?: string };
+  if (!repo_full_name || !repo_full_name.includes("/")) {
+    return res.status(400).json({ message: "repo_full_name is required (owner/repo)" });
+  }
+
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) {
+    return res.status(503).json({ message: "Analysis service not configured" });
+  }
+
+  try {
+    const token = await getAccessToken(req.session.userId!);
+    const [owner, repo] = repo_full_name.split("/");
+
+    const repoData = await githubFetch(token, `/repos/${owner}/${repo}`) as {
+      description: string | null;
+      default_branch: string;
+      language: string | null;
+      name: string;
+    };
+
+    let languages: Record<string, number> = {};
+    try {
+      languages = await githubFetch(token, `/repos/${owner}/${repo}/languages`) as Record<string, number>;
+    } catch { /* ignore */ }
+
+    let rootFiles: string[] = [];
+    try {
+      const contents = await githubFetch(token, `/repos/${owner}/${repo}/contents/`) as Array<{ name: string; type: string }>;
+      rootFiles = contents.slice(0, 40).map((f) => f.type === "dir" ? `${f.name}/` : f.name);
+    } catch { /* ignore */ }
+
+    let readmeText = "";
+    try {
+      const readme = await githubFetch(token, `/repos/${owner}/${repo}/readme`) as { content: string };
+      readmeText = Buffer.from(readme.content, "base64").toString("utf-8").slice(0, 4000);
+    } catch { /* ignore */ }
+
+    const languageList = Object.keys(languages).slice(0, 6).join(", ");
+    const prompt = `You are analyzing a GitHub repository for its developer. Based on the information below, provide:
+1. A 2-3 sentence plain-English description of what this project does (written for the developer who built it, concise and factual)
+2. A JSON array of up to 5 specific technologies/frameworks detected (e.g. "React", "TypeScript", "PostgreSQL", "Express", "Tailwind")
+
+Respond ONLY with valid JSON in this exact format: {"summary": "...", "stack": ["...", "..."]}
+
+Repository: ${repo_full_name}
+Description: ${repoData.description || "none"}
+Primary language: ${repoData.language || "unknown"}
+All languages: ${languageList || "unknown"}
+Root files: ${rootFiles.join(", ") || "unknown"}
+README (first 4000 chars):
+${readmeText || "No README found"}`;
+
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0.2,
+            maxOutputTokens: 512,
+          },
+        }),
+      }
+    );
+
+    if (!geminiRes.ok) {
+      const errText = await geminiRes.text();
+      console.error("Gemini API error:", geminiRes.status, errText);
+      throw new Error(`Gemini API error ${geminiRes.status}`);
+    }
+
+    const geminiData = await geminiRes.json() as {
+      candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
+    };
+
+    const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+    let parsed: { summary?: string; stack?: string[] } = {};
+    try {
+      parsed = JSON.parse(rawText);
+    } catch { /* ignore */ }
+
+    return res.json({
+      summary: parsed.summary ?? repoData.description ?? "",
+      stack: Array.isArray(parsed.stack) ? parsed.stack.slice(0, 5) : [],
+      repo_name: repoData.name,
+      default_branch: repoData.default_branch,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("Analyze error:", message);
+    return res.status(502).json({ message: "Failed to analyze repository" });
+  }
+});
+
 export { githubFetch, getAccessToken };
 export default router;
