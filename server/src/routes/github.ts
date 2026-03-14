@@ -15,9 +15,19 @@ async function getAccessToken(userId: number): Promise<string> {
 
 const FETCH_TIMEOUT_MS = 10_000;
 
+function sanitizeUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.search = "";
+    return parsed.toString();
+  } catch {
+    return url.split("?")[0];
+  }
+}
+
 class FetchTimeoutError extends Error {
   constructor(url: string) {
-    super(`Request timed out after ${FETCH_TIMEOUT_MS}ms: ${url}`);
+    super(`Request timed out after ${FETCH_TIMEOUT_MS}ms: ${sanitizeUrl(url)}`);
     this.name = "FetchTimeoutError";
   }
 }
