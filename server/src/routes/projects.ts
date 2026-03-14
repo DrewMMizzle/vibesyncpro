@@ -91,6 +91,7 @@ router.post("/", requireAuth, async (req, res) => {
 
   const allConns = await storage.getConnectionsByProject(project.id);
 
+  let initialSyncWarning: string | undefined;
   if (github_repo_name && github_repo_name.includes("/") && allConns.length > 0) {
     try {
       const token = await getAccessToken(req.session.userId!);
@@ -121,7 +122,10 @@ router.post("/", requireAuth, async (req, res) => {
           // sync error for individual connection — skip
         }
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof NoGitHubTokenError || err instanceof GitHubTokenRevokedError) {
+        initialSyncWarning = err.message;
+      }
       // initial sync failed — project still created successfully
     }
   }
@@ -133,7 +137,8 @@ router.post("/", requireAuth, async (req, res) => {
 
   const finalConns = await storage.getConnectionsByProject(project.id);
   const finalProject = await storage.getProjectById(project.id);
-  return res.status(201).json(formatProject(finalProject!, finalConns));
+  const result = formatProject(finalProject!, finalConns);
+  return res.status(201).json(initialSyncWarning ? { ...result, warning: initialSyncWarning } : result);
 });
 
 // GET /api/projects/:id
