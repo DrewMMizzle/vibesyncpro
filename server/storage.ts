@@ -31,6 +31,7 @@ export interface IStorage {
   dismissDiscoveredBranch(id: number, lastCommitSha: string | null): Promise<void>;
   deleteDiscoveredBranch(id: number): Promise<void>;
   deleteStaleDiscoveredBranches(projectId: number, activeBranchNames: string[]): Promise<void>;
+  clearAllDiscoveredBranches(projectId: number): Promise<void>;
   deleteProject(projectId: number): Promise<void>;
   addActivityLog(projectId: number, eventType: string, description: string, metadata?: Record<string, unknown>): Promise<ActivityLogEntry>;
   getActivityLog(projectId: number, limit?: number): Promise<ActivityLogEntry[]>;
@@ -148,7 +149,7 @@ export class DatabaseStorage implements IStorage {
 
   async deleteStaleDiscoveredBranches(projectId: number, activeBranchNames: string[]): Promise<void> {
     if (activeBranchNames.length === 0) {
-      await db.delete(discoveredBranches).where(eq(discoveredBranches.project_id, projectId));
+      console.warn(`deleteStaleDiscoveredBranches called with empty activeBranchNames for project ${projectId} — skipping to prevent accidental deletion of all branches`);
       return;
     }
     await db.delete(discoveredBranches)
@@ -156,6 +157,10 @@ export class DatabaseStorage implements IStorage {
         eq(discoveredBranches.project_id, projectId),
         notInArray(discoveredBranches.branch_name, activeBranchNames)
       ));
+  }
+
+  async clearAllDiscoveredBranches(projectId: number): Promise<void> {
+    await db.delete(discoveredBranches).where(eq(discoveredBranches.project_id, projectId));
   }
 
   async deleteProject(projectId: number): Promise<void> {
