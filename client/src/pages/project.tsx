@@ -71,6 +71,19 @@ interface GitHubBranch {
   name: string;
 }
 
+interface CommitInfo {
+  sha: string;
+  message: string;
+  author: string;
+  date: string;
+}
+
+interface CommitContext {
+  ahead: CommitInfo[];
+  behind: CommitInfo[];
+  files: { name: string; status: string }[];
+}
+
 const PLATFORM_LABELS: Record<Platform, string> = {
   replit: "Replit",
   claude_code: "Claude Code",
@@ -147,6 +160,88 @@ function getActivityColor(eventType: string): string {
     case "branch_conflict": return "text-red-500";
     default: return "text-muted-foreground";
   }
+}
+
+function ConnectionCommits({ projectId, connId, status, aheadBy, behindBy }: {
+  projectId: number;
+  connId: number;
+  status: Status;
+  aheadBy: number;
+  behindBy: number;
+}) {
+  const { data, isLoading } = useQuery<CommitContext>({
+    queryKey: ["/api/projects", projectId, "connections", connId, "commits"],
+    queryFn: getQueryFn({ on401: "throw" }),
+    enabled: (status === "drifted" || status === "conflict"),
+    staleTime: 60_000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground/50">
+        <RefreshCw className="w-3 h-3 animate-spin" />
+        Loading changes…
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const hasAhead = data.ahead.length > 0;
+  const hasBehind = data.behind.length > 0;
+
+  if (!hasAhead && !hasBehind) return null;
+
+  return (
+    <div className="mt-3 space-y-3 text-xs">
+      {hasAhead && (
+        <div>
+          <p className="font-medium text-muted-foreground mb-1.5">
+            {aheadBy === 1 ? "1 new commit" : `${aheadBy} new commits`} from this agent:
+          </p>
+          <ul className="space-y-1">
+            {data.ahead.map((c) => (
+              <li key={c.sha} className="flex items-start gap-2">
+                <span className="font-mono text-muted-foreground/50 shrink-0 mt-0.5">{c.sha}</span>
+                <span className="text-foreground/70 leading-snug">{c.message}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {hasBehind && (
+        <div>
+          <p className="font-medium text-muted-foreground mb-1.5">
+            {behindBy === 1 ? "1 commit" : `${behindBy} commits`} in your project this agent hasn't seen:
+          </p>
+          <ul className="space-y-1">
+            {data.behind.map((c) => (
+              <li key={c.sha} className="flex items-start gap-2">
+                <span className="font-mono text-muted-foreground/50 shrink-0 mt-0.5">{c.sha}</span>
+                <span className="text-foreground/70 leading-snug">{c.message}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {status === "conflict" && data.files.length > 0 && (
+        <div>
+          <p className="font-medium text-muted-foreground mb-1.5">Files that diverged:</p>
+          <ul className="space-y-0.5">
+            {data.files.slice(0, 8).map((f) => (
+              <li key={f.name} className="flex items-center gap-1.5 text-foreground/60">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                <span className="font-mono truncate">{f.name}</span>
+              </li>
+            ))}
+            {data.files.length > 8 && (
+              <li className="text-muted-foreground/50">+{data.files.length - 8} more files</li>
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function ProjectPage() {
@@ -1065,36 +1160,54 @@ export default function ProjectPage() {
                   {showResolution && (
                     <div data-testid={`resolution-${conn.id}`} className="mt-4 pt-4 border-t border-border">
                       {isAhead && (
-                        <div className="flex items-start justify-between gap-3">
-                          <p data-testid={`text-resolution-${conn.id}`} className="text-sm text-muted-foreground">
-                            This agent has {conn.ahead_by} new {conn.ahead_by === 1 ? "commit" : "commits"} ready to add to your project.
-                          </p>
-                          <button
-                            data-testid={`button-merge-to-default-${conn.id}`}
-                            onClick={() => resolveConnection.mutate({ connId: conn.id, action: "merge_to_default" })}
-                            disabled={isResolving}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50 whitespace-nowrap"
-                          >
-                            <GitMerge className="w-3.5 h-3.5" />
-                            {isResolving ? "Merging..." : "Merge to main"}
-                          </button>
+                        <div>
+                          <div className="flex items-start justify-between gap-3">
+                            <p data-testid={`text-resolution-${conn.id}`} className="text-sm text-muted-foreground">
+                              This agent has {conn.ahead_by} new {conn.ahead_by === 1 ? "commit" : "commits"} ready to add to your project.
+                            </p>
+                            <button
+                              data-testid={`button-merge-to-default-${conn.id}`}
+                              onClick={() => resolveConnection.mutate({ connId: conn.id, action: "merge_to_default" })}
+                              disabled={isResolving}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50 whitespace-nowrap"
+                            >
+                              <GitMerge className="w-3.5 h-3.5" />
+                              {isResolving ? "Merging..." : "Merge to main"}
+                            </button>
+                          </div>
+                          <ConnectionCommits
+                            projectId={project.id}
+                            connId={conn.id}
+                            status={conn.status}
+                            aheadBy={conn.ahead_by}
+                            behindBy={conn.behind_by}
+                          />
                         </div>
                       )}
 
                       {isBehind && (
-                        <div className="flex items-start justify-between gap-3">
-                          <p data-testid={`text-resolution-${conn.id}`} className="text-sm text-muted-foreground">
-                            Your project has {conn.behind_by} new {conn.behind_by === 1 ? "commit" : "commits"} that this agent's branch doesn't have yet.
-                          </p>
-                          <button
-                            data-testid={`button-update-from-default-${conn.id}`}
-                            onClick={() => resolveConnection.mutate({ connId: conn.id, action: "update_from_default" })}
-                            disabled={isResolving}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50 whitespace-nowrap"
-                          >
-                            <ArrowDownToLine className="w-3.5 h-3.5" />
-                            {isResolving ? "Updating..." : "Update branch"}
-                          </button>
+                        <div>
+                          <div className="flex items-start justify-between gap-3">
+                            <p data-testid={`text-resolution-${conn.id}`} className="text-sm text-muted-foreground">
+                              Your project has {conn.behind_by} new {conn.behind_by === 1 ? "commit" : "commits"} that this agent's branch doesn't have yet.
+                            </p>
+                            <button
+                              data-testid={`button-update-from-default-${conn.id}`}
+                              onClick={() => resolveConnection.mutate({ connId: conn.id, action: "update_from_default" })}
+                              disabled={isResolving}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50 whitespace-nowrap"
+                            >
+                              <ArrowDownToLine className="w-3.5 h-3.5" />
+                              {isResolving ? "Updating..." : "Update branch"}
+                            </button>
+                          </div>
+                          <ConnectionCommits
+                            projectId={project.id}
+                            connId={conn.id}
+                            status={conn.status}
+                            aheadBy={conn.ahead_by}
+                            behindBy={conn.behind_by}
+                          />
                         </div>
                       )}
 
@@ -1114,6 +1227,13 @@ export default function ProjectPage() {
                               {isResolving ? "Resolving..." : "Auto-resolve"}
                             </button>
                           </div>
+                          <ConnectionCommits
+                            projectId={project.id}
+                            connId={conn.id}
+                            status={conn.status}
+                            aheadBy={conn.ahead_by}
+                            behindBy={conn.behind_by}
+                          />
 
                           {conflictInfo && conflictInfo.connId === conn.id && (
                             <div data-testid={`conflict-message-${conn.id}`} className="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800">
