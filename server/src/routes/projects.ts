@@ -5,6 +5,7 @@ import { storage } from "../../storage";
 import { githubFetch, getAccessToken, GitHubRateLimitError, NoGitHubTokenError, GitHubTokenRevokedError } from "./github";
 import { syncLimiter, scanLimiter } from "../middleware/rateLimiter";
 import type { Project, PlatformConnection, DiscoveredBranch } from "@shared/schema";
+import geniusRouter from "./genius";
 
 const router = Router();
 
@@ -1026,5 +1027,7 @@ router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) =>
     return res.status(502).json({ message: "Failed to merge branches on GitHub. Please try again." });
   }
 });
+
+router.use("/:id/connections/:connId/genius", geniusRouter);
 
 export default router;
