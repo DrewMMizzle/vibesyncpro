@@ -178,7 +178,7 @@ function ConnectionCommits({ projectId, connId, status, aheadBy, behindBy }: {
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground/50">
+      <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground">
         <RefreshCw className="w-3 h-3 animate-spin" />
         Loading changes…
       </div>
@@ -202,8 +202,8 @@ function ConnectionCommits({ projectId, connId, status, aheadBy, behindBy }: {
           <ul className="space-y-1">
             {data.ahead.map((c) => (
               <li key={c.sha} className="flex items-start gap-2">
-                <span className="font-mono text-muted-foreground/50 shrink-0 mt-0.5">{c.sha}</span>
-                <span className="text-foreground/70 leading-snug">{c.message}</span>
+                <span className="font-mono text-muted-foreground/70 shrink-0 mt-0.5">{c.sha}</span>
+                <span className="text-foreground leading-snug">{c.message}</span>
               </li>
             ))}
           </ul>
@@ -217,8 +217,8 @@ function ConnectionCommits({ projectId, connId, status, aheadBy, behindBy }: {
           <ul className="space-y-1">
             {data.behind.map((c) => (
               <li key={c.sha} className="flex items-start gap-2">
-                <span className="font-mono text-muted-foreground/50 shrink-0 mt-0.5">{c.sha}</span>
-                <span className="text-foreground/70 leading-snug">{c.message}</span>
+                <span className="font-mono text-muted-foreground/70 shrink-0 mt-0.5">{c.sha}</span>
+                <span className="text-foreground leading-snug">{c.message}</span>
               </li>
             ))}
           </ul>
@@ -229,13 +229,13 @@ function ConnectionCommits({ projectId, connId, status, aheadBy, behindBy }: {
           <p className="font-medium text-muted-foreground mb-1.5">Files that diverged:</p>
           <ul className="space-y-0.5">
             {data.files.slice(0, 8).map((f) => (
-              <li key={f.name} className="flex items-center gap-1.5 text-foreground/60">
+              <li key={f.name} className="flex items-center gap-1.5 text-foreground/80">
                 <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
                 <span className="font-mono truncate">{f.name}</span>
               </li>
             ))}
             {data.files.length > 8 && (
-              <li className="text-muted-foreground/50">+{data.files.length - 8} more files</li>
+              <li className="text-muted-foreground">+{data.files.length - 8} more files</li>
             )}
           </ul>
         </div>
@@ -1359,7 +1359,7 @@ export default function ProjectPage() {
                               )}
 
                               {branch.last_commit_at && (
-                                <p data-testid={`text-discovered-lastcommit-${branch.id}`} className="text-[10px] text-muted-foreground/50 mt-1 ml-6">
+                                <p data-testid={`text-discovered-lastcommit-${branch.id}`} className="text-[10px] text-muted-foreground mt-1 ml-6">
                                   Last commit {timeAgo(branch.last_commit_at)}
                                 </p>
                               )}
@@ -1494,11 +1494,11 @@ export default function ProjectPage() {
                               {entry.description}
                             </p>
                             <div className="flex items-center gap-2 mt-0.5">
-                              <p data-testid={`activity-time-${entry.id}`} className="text-[10px] text-muted-foreground/60">
+                              <p data-testid={`activity-time-${entry.id}`} className="text-[10px] text-muted-foreground">
                                 {timeAgo(entry.created_at)}
                               </p>
                               {typeof entry.metadata === "object" && entry.metadata !== null && !!(entry.metadata as Record<string, unknown>).branch && (
-                                <span className="text-[10px] text-muted-foreground/50 flex items-center gap-0.5">
+                                <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
                                   <GitBranch className="w-2.5 h-2.5" />
                                   {String((entry.metadata as Record<string, unknown>).branch)}
                                 </span>
@@ -1710,7 +1710,7 @@ export default function ProjectPage() {
 
                   <div>
                     <label className="text-sm text-muted-foreground mb-1.5 block">
-                      Branch {!project.github_repo_name && <span className="text-muted-foreground/50">(link a repo first for branch picker)</span>}
+                      Branch {!project.github_repo_name && <span className="text-muted-foreground">(link a repo first for branch picker)</span>}
                     </label>
                     {project.github_repo_name && branchesLoading ? (
                       <p className="text-sm text-muted-foreground py-2">Loading branches...</p>

@@ -80,7 +80,7 @@ export default function Home() {
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.2, duration: 0.5 }}
                 data-testid="text-welcome-back"
-                className="text-4xl sm:text-5xl md:text-6xl font-light text-muted-foreground/40 tracking-tight"
+                className="text-4xl sm:text-5xl md:text-6xl font-light text-foreground/80 tracking-tight"
               >
                 Welcome back{user?.username ? `, ${user.username}` : ""}
               </motion.h1>
@@ -101,7 +101,7 @@ export default function Home() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.6, duration: 0.4 }}
-                className="text-sm text-muted-foreground/40"
+                className="text-sm text-muted-foreground"
               >
                 Redirecting automatically…
               </motion.p>
@@ -120,7 +120,7 @@ export default function Home() {
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.2, duration: 0.5 }}
                 data-testid="text-heading"
-                className="text-4xl sm:text-5xl md:text-6xl font-light text-muted-foreground/40 tracking-tight"
+                className="text-4xl sm:text-5xl md:text-6xl font-light text-foreground/80 tracking-tight"
               >
                 How are you building?
               </motion.h1>

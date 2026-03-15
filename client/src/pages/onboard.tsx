@@ -883,7 +883,7 @@ export default function OnboardPage() {
                   </div>
                   {selectedRepo ? (
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <Check className="w-4 h-4 text-foreground/40" />
+                      <Check className="w-4 h-4 text-muted-foreground" />
                       <button
                         data-testid="button-change-repo"
                         onClick={goBack}
@@ -1023,7 +1023,7 @@ export default function OnboardPage() {
                                       </>
                                     )}
                                     {!selectedRepo && (
-                                      <p className="text-xs text-muted-foreground/70 italic">
+                                      <p className="text-xs text-muted-foreground italic">
                                         No repo linked — you can set up branches later from your project page.
                                       </p>
                                     )}
