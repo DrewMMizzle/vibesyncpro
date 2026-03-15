@@ -425,7 +425,7 @@ export default function OnboardPage() {
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.2, duration: 0.5 }}
                   data-testid="text-heading-picker"
-                  className="text-4xl sm:text-5xl md:text-6xl font-light text-muted-foreground/40 tracking-tight"
+                  className="text-4xl sm:text-5xl md:text-6xl font-light text-foreground/80 tracking-tight"
                 >
                   How are you building?
                 </motion.h1>
@@ -475,7 +475,7 @@ export default function OnboardPage() {
                     <ArrowLeft className="w-4 h-4" />
                     Back
                   </button>
-                  <h1 data-testid="text-heading-name" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
+                  <h1 data-testid="text-heading-name" className="text-3xl sm:text-4xl font-light text-foreground/80 tracking-tight">
                     What are you calling it?
                   </h1>
                 </div>
@@ -527,7 +527,7 @@ export default function OnboardPage() {
                     <ArrowLeft className="w-4 h-4" />
                     Back
                   </button>
-                  <h1 data-testid="text-heading-repo" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
+                  <h1 data-testid="text-heading-repo" className="text-3xl sm:text-4xl font-light text-foreground/80 tracking-tight">
                     {entryPath === "fresh" ? "Connect to GitHub" : "Which repo?"}
                   </h1>
                   {entryPath === "fresh" && (
@@ -661,7 +661,7 @@ export default function OnboardPage() {
                     <ArrowLeft className="w-4 h-4" />
                     Back
                   </button>
-                  <h1 data-testid="text-heading-fork" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
+                  <h1 data-testid="text-heading-fork" className="text-3xl sm:text-4xl font-light text-foreground/80 tracking-tight">
                     Fork a public repo
                   </h1>
                   <p className="text-sm text-muted-foreground mt-2">
@@ -756,7 +756,7 @@ export default function OnboardPage() {
                     <ArrowLeft className="w-4 h-4" />
                     Back
                   </button>
-                  <h1 data-testid="text-heading-analyze" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
+                  <h1 data-testid="text-heading-analyze" className="text-3xl sm:text-4xl font-light text-foreground/80 tracking-tight">
                     Understanding your project
                   </h1>
                 </div>
@@ -857,7 +857,7 @@ export default function OnboardPage() {
                     <ArrowLeft className="w-4 h-4" />
                     Back
                   </button>
-                  <h1 data-testid="text-heading-agents" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
+                  <h1 data-testid="text-heading-agents" className="text-3xl sm:text-4xl font-light text-foreground/80 tracking-tight">
                     What would you like to connect?
                   </h1>
                   <p className="text-sm text-muted-foreground mt-2">
@@ -980,7 +980,7 @@ export default function OnboardPage() {
                                           <ExternalLink className="w-3.5 h-3.5" />
                                           Open in Replit →
                                         </a>
-                                        <p className="text-[11px] text-muted-foreground/60">
+                                        <p className="text-[11px] text-muted-foreground">
                                           Replit will create a branch automatically — come back and scan for it once your agent is running.
                                         </p>
                                       </>
@@ -999,7 +999,7 @@ export default function OnboardPage() {
                                           <span className="truncate">git clone {selectedRepo.html_url} && cd {selectedRepo.name} && claude</span>
                                           <Copy className="w-3.5 h-3.5 flex-shrink-0 text-muted-foreground" />
                                         </button>
-                                        <p className="text-[11px] text-muted-foreground/60">
+                                        <p className="text-[11px] text-muted-foreground">
                                           Name the branch you'll use (e.g. claude-code) and come back to link it once your agent is running.
                                         </p>
                                       </>
@@ -1017,7 +1017,7 @@ export default function OnboardPage() {
                                           <Copy className="w-3.5 h-3.5 flex-shrink-0" />
                                           <span className="truncate">{selectedRepo.html_url}</span>
                                         </button>
-                                        <p className="text-[11px] text-muted-foreground/60">
+                                        <p className="text-[11px] text-muted-foreground">
                                           Come back and link the branch once your agent is running.
                                         </p>
                                       </>
@@ -1030,7 +1030,7 @@ export default function OnboardPage() {
                                     {selectedRepo && (
                                       <>
                                         <div className="mt-1">
-                                          <label className="text-[11px] text-muted-foreground/60 block mb-1">Planned branch name (optional)</label>
+                                          <label className="text-[11px] text-muted-foreground block mb-1">Planned branch name (optional)</label>
                                           <input
                                             data-testid={`input-planned-branch-${p}`}
                                             type="text"
@@ -1040,7 +1040,7 @@ export default function OnboardPage() {
                                             className="w-full px-3 py-1.5 rounded-md border border-border bg-background text-foreground text-xs focus:border-foreground focus:outline-none transition-colors placeholder:text-muted-foreground/30"
                                           />
                                         </div>
-                                        <p className="text-[11px] text-muted-foreground/50">
+                                        <p className="text-[11px] text-muted-foreground">
                                           You can always connect branches later from your project page.
                                         </p>
                                       </>
@@ -1104,7 +1104,7 @@ export default function OnboardPage() {
                     <ArrowLeft className="w-4 h-4" />
                     Back
                   </button>
-                  <h1 data-testid="text-heading-review" className="text-3xl sm:text-4xl font-light text-muted-foreground/40 tracking-tight">
+                  <h1 data-testid="text-heading-review" className="text-3xl sm:text-4xl font-light text-foreground/80 tracking-tight">
                     Ready to launch
                   </h1>
                 </div>
