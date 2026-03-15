@@ -51,7 +51,7 @@ export default function Home() {
             data-testid="text-hero-subheadline"
             className="mt-6 text-base sm:text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed"
           >
-            VibeSyncPro watches every branch your AI agents touch — Replit, Claude Code, and Computer Use — and tells you exactly what's in sync, what's drifted, and what needs&nbsp;fixing.
+            VibeSyncPro connects to your GitHub repos and watches every branch your AI agents touch — Replit, Claude Code, and Computer Use — telling you exactly what's in sync, what's drifted, and what needs&nbsp;fixing.
           </p>
           <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
             <a
