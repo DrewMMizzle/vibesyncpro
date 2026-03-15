@@ -12,6 +12,7 @@ import {
   type DiscoveredBranch,
   type ActivityLogEntry,
 } from "@shared/schema";
+import { encryptToken, decryptToken } from "./src/utils/crypto";
 
 export interface IStorage {
   upsertUser(githubId: string, username: string, avatarUrl: string | null, accessToken: string): Promise<User>;
@@ -39,25 +40,27 @@ export interface IStorage {
 
 export class DatabaseStorage implements IStorage {
   async upsertUser(githubId: string, username: string, avatarUrl: string | null, accessToken: string): Promise<User> {
+    const encryptedToken = encryptToken(accessToken);
     const existing = await db.select().from(users).where(eq(users.github_id, githubId)).limit(1);
     if (existing.length > 0) {
       const [updated] = await db
         .update(users)
-        .set({ username, avatar_url: avatarUrl, access_token: accessToken, updated_at: new Date() })
+        .set({ username, avatar_url: avatarUrl, access_token: encryptedToken, updated_at: new Date() })
         .where(eq(users.github_id, githubId))
         .returning();
-      return updated;
+      return { ...updated, access_token: decryptToken(updated.access_token) };
     }
     const [user] = await db
       .insert(users)
-      .values({ github_id: githubId, username, avatar_url: avatarUrl, access_token: accessToken })
+      .values({ github_id: githubId, username, avatar_url: avatarUrl, access_token: encryptedToken })
       .returning();
-    return user;
+    return { ...user, access_token: decryptToken(user.access_token) };
   }
 
   async findUserById(id: number): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
-    return user;
+    if (!user) return undefined;
+    return { ...user, access_token: decryptToken(user.access_token) };
   }
 
   async createProject(userId: number, name: string, description: string | null): Promise<Project> {
