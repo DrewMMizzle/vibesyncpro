@@ -9,7 +9,7 @@ import {
   Search, Lock, Unlock, ExternalLink, GitMerge, ArrowDownToLine, Zap, AlertTriangle,
   Eye, EyeOff, Send, FolderGit2, ChevronDown, ChevronRight, Pencil, Check, X, Settings,
   Activity, CircleCheck, CircleAlert, CircleDot, CircleX, Rocket, GitFork,
-  Copy, Terminal, Lightbulb, ArrowRight,
+  Copy, Terminal, Lightbulb, ArrowRight, Sparkles,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -160,6 +160,416 @@ function getActivityColor(eventType: string): string {
     case "branch_conflict": return "text-red-500";
     default: return "text-muted-foreground";
   }
+}
+
+interface GeniusConflictFile {
+  path: string;
+  baseContent: string;
+  headContent: string;
+  headSha: string;
+}
+
+function GeniusModal({
+  projectId,
+  conn,
+  onClose,
+  onSuccess,
+}: {
+  projectId: number;
+  conn: Connection;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [loadPhase, setLoadPhase] = useState<"loading" | "ready" | "error">("loading");
+  const [files, setFiles] = useState<GeniusConflictFile[]>([]);
+  const [defaultBranch, setDefaultBranch] = useState("main");
+  const [fileIndex, setFileIndex] = useState(0);
+  const [editedContent, setEditedContent] = useState<Record<string, string>>({});
+  const [accepted, setAccepted] = useState<Set<string>>(new Set());
+  const [explanations, setExplanations] = useState<Record<string, string>>({});
+  const [suggestingFor, setSuggestingFor] = useState<string | null>(null);
+  const [applyPhase, setApplyPhase] = useState<null | "applying" | "done">(null);
+  const [applyResult, setApplyResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [errorMsg, setErrorMsg] = useState("");
+  const { toast } = useToast();
+
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}/connections/${conn.id}/genius/conflicts`, {
+      credentials: "include",
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || "Failed to load conflicts");
+        return data;
+      })
+      .then((data) => {
+        if (!data.files || data.files.length === 0) {
+          setErrorMsg(data.message || "No conflicting files detected. Try running a sync first.");
+          setLoadPhase("error");
+        } else {
+          setFiles(data.files);
+          setDefaultBranch(data.defaultBranch ?? "main");
+          const initial: Record<string, string> = {};
+          for (const f of data.files) {
+            initial[f.path] = f.headContent;
+          }
+          setEditedContent(initial);
+          setLoadPhase("ready");
+        }
+      })
+      .catch((err: unknown) => {
+        setErrorMsg(err instanceof Error ? err.message : "Failed to analyze conflicts");
+        setLoadPhase("error");
+      });
+  }, [projectId, conn.id]);
+
+  const currentFile = files[fileIndex];
+  const allAccepted = files.length > 0 && files.every((f) => accepted.has(f.path));
+
+  const askGemini = async (file: GeniusConflictFile) => {
+    setSuggestingFor(file.path);
+    try {
+      const res = await apiRequest(
+        "POST",
+        `/api/projects/${projectId}/connections/${conn.id}/genius/suggest`,
+        {
+          path: file.path,
+          baseContent: file.baseContent,
+          headContent: file.headContent,
+          baseBranch: defaultBranch,
+          headBranch: conn.branch_name ?? "agent",
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Gemini failed");
+      setEditedContent((c) => ({ ...c, [file.path]: data.resolution }));
+      setExplanations((e) => ({ ...e, [file.path]: data.explanation }));
+    } catch (err: unknown) {
+      toast({
+        title: "Gemini couldn't resolve this file",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setSuggestingFor(null);
+    }
+  };
+
+  const acceptFile = (path: string) => {
+    setAccepted((s) => new Set([...s, path]));
+    if (fileIndex < files.length - 1) setFileIndex(fileIndex + 1);
+  };
+
+  const applyAll = async () => {
+    setApplyPhase("applying");
+    const resolutions = files.map((f) => ({
+      path: f.path,
+      content: editedContent[f.path] ?? f.headContent,
+      sha: f.headSha,
+    }));
+    try {
+      const res = await apiRequest(
+        "POST",
+        `/api/projects/${projectId}/connections/${conn.id}/genius/apply`,
+        { resolutions }
+      );
+      const data = await res.json();
+      setApplyResult({
+        success: data.success,
+        message: data.message ?? (data.success ? "Merge successful!" : "Some conflicts remain"),
+      });
+      setApplyPhase("done");
+      if (data.success) onSuccess();
+    } catch (err: unknown) {
+      setApplyResult({
+        success: false,
+        message: err instanceof Error ? err.message : "Apply failed",
+      });
+      setApplyPhase("done");
+    }
+  };
+
+  const fileName = (path: string) => path.split("/").pop() ?? path;
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-background/98 backdrop-blur-sm" data-testid="genius-modal">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-foreground flex items-center justify-center flex-shrink-0">
+            <Sparkles className="w-4 h-4 text-background" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-foreground">Conflict Genius</h2>
+            <p className="text-xs text-muted-foreground">
+              {PLATFORM_LABELS[conn.platform]} · {conn.branch_name ?? "branch"}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="text-muted-foreground hover:text-foreground transition-colors p-1"
+          data-testid="button-genius-close"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Loading */}
+      {loadPhase === "loading" && (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4">
+          <RefreshCw className="w-8 h-8 text-muted-foreground animate-spin" />
+          <div className="text-center">
+            <p className="font-medium text-foreground">Analyzing conflicts…</p>
+            <p className="text-sm text-muted-foreground mt-1">Fetching file contents from both branches</p>
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
+      {loadPhase === "error" && (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
+          <AlertTriangle className="w-8 h-8 text-muted-foreground" />
+          <div className="text-center max-w-md">
+            <p className="font-medium text-foreground">Could not load conflicts</p>
+            <p className="text-sm text-muted-foreground mt-2">{errorMsg}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg border border-border text-sm text-foreground hover:border-foreground/40 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      )}
+
+      {/* Applying */}
+      {applyPhase === "applying" && (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4">
+          <RefreshCw className="w-8 h-8 text-muted-foreground animate-spin" />
+          <div className="text-center">
+            <p className="font-medium text-foreground">Applying resolutions…</p>
+            <p className="text-sm text-muted-foreground mt-1">Writing resolved files and merging branches</p>
+          </div>
+        </div>
+      )}
+
+      {/* Done */}
+      {applyPhase === "done" && applyResult && (
+        <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6">
+          {applyResult.success ? (
+            <>
+              <div className="w-14 h-14 rounded-full bg-green-50 dark:bg-green-950 flex items-center justify-center">
+                <CircleCheck className="w-7 h-7 text-green-600 dark:text-green-400" />
+              </div>
+              <div className="text-center max-w-md">
+                <p className="font-semibold text-foreground text-xl">Merge complete</p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Conflict Genius resolved {files.length} file{files.length === 1 ? "" : "s"} and merged the branch into your project.
+                </p>
+              </div>
+              <button
+                onClick={onClose}
+                className="px-6 py-2.5 rounded-lg bg-foreground text-background text-sm font-medium hover:bg-foreground/90 transition-colors"
+                data-testid="button-genius-done"
+              >
+                Done
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="w-14 h-14 rounded-full bg-yellow-50 dark:bg-yellow-950 flex items-center justify-center">
+                <AlertTriangle className="w-7 h-7 text-yellow-600 dark:text-yellow-400" />
+              </div>
+              <div className="text-center max-w-md">
+                <p className="font-semibold text-foreground text-xl">Partially resolved</p>
+                <p className="text-sm text-muted-foreground mt-2">{applyResult.message}</p>
+              </div>
+              <button
+                onClick={onClose}
+                className="px-6 py-2.5 rounded-lg border border-border text-sm text-foreground hover:border-foreground/40 transition-colors"
+              >
+                Close
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Main working view */}
+      {loadPhase === "ready" && !applyPhase && currentFile && (
+        <div className="flex flex-1 overflow-hidden">
+          {/* Sidebar — file list (hidden on mobile) */}
+          <div className="w-52 border-r border-border flex-shrink-0 overflow-y-auto hidden md:flex flex-col">
+            <div className="p-3">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 px-1">
+                {files.length} conflicting {files.length === 1 ? "file" : "files"}
+              </p>
+              {files.map((f, i) => (
+                <button
+                  key={f.path}
+                  onClick={() => setFileIndex(i)}
+                  title={f.path}
+                  className={`w-full text-left px-2 py-2 rounded-md text-xs flex items-center gap-2 transition-colors mb-0.5 ${
+                    i === fileIndex
+                      ? "bg-foreground text-background"
+                      : "text-foreground hover:bg-muted"
+                  }`}
+                  data-testid={`button-genius-file-${i}`}
+                >
+                  {accepted.has(f.path) ? (
+                    <CircleCheck className="w-3 h-3 flex-shrink-0 text-green-400" />
+                  ) : (
+                    <CircleDot className="w-3 h-3 flex-shrink-0 opacity-50" />
+                  )}
+                  <span className="truncate font-mono">{fileName(f.path)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Content area */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* File header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
+              <div>
+                <p className="font-mono text-sm font-medium text-foreground truncate max-w-sm" title={currentFile.path}>
+                  {currentFile.path}
+                </p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <p className="text-xs text-muted-foreground">
+                    File {fileIndex + 1} of {files.length}
+                  </p>
+                  {accepted.has(currentFile.path) && (
+                    <span className="text-xs text-green-600 font-medium">· Accepted</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setFileIndex(Math.max(0, fileIndex - 1))}
+                  disabled={fileIndex === 0}
+                  className="px-2 py-1 rounded text-xs text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors"
+                >
+                  ← Prev
+                </button>
+                <button
+                  onClick={() => setFileIndex(Math.min(files.length - 1, fileIndex + 1))}
+                  disabled={fileIndex === files.length - 1}
+                  className="px-2 py-1 rounded text-xs text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors"
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+
+            {/* Split diff + resolution */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              {/* Side-by-side source views */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1.5 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0" />
+                    {defaultBranch} (your project)
+                  </p>
+                  <pre className="text-xs font-mono bg-muted/60 rounded-lg p-3 overflow-auto max-h-52 whitespace-pre-wrap break-all text-foreground/80 border border-border leading-relaxed">
+                    {currentFile.baseContent.slice(0, 4000) || "(empty file)"}
+                  </pre>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1.5 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0" />
+                    {conn.branch_name} (agent)
+                  </p>
+                  <pre className="text-xs font-mono bg-muted/60 rounded-lg p-3 overflow-auto max-h-52 whitespace-pre-wrap break-all text-foreground/80 border border-border leading-relaxed">
+                    {currentFile.headContent.slice(0, 4000) || "(empty file)"}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Gemini resolution area */}
+              <div className="border border-border rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 bg-foreground/[0.02] border-b border-border">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-muted-foreground" />
+                    <p className="text-sm font-medium text-foreground">Gemini's resolution</p>
+                    {explanations[currentFile.path] && (
+                      <span className="text-xs text-muted-foreground hidden sm:block">· edit below if needed</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => askGemini(currentFile)}
+                    disabled={suggestingFor === currentFile.path}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-foreground text-background text-xs font-medium hover:bg-foreground/90 transition-colors disabled:opacity-60"
+                    data-testid={`button-ask-gemini-${conn.id}`}
+                  >
+                    {suggestingFor === currentFile.path ? (
+                      <>
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                        Thinking…
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3 h-3" />
+                        {editedContent[currentFile.path] !== currentFile.headContent
+                          ? "Re-ask Gemini"
+                          : "Ask Gemini"}
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {explanations[currentFile.path] && (
+                  <div className="px-4 py-2.5 text-xs text-muted-foreground italic bg-muted/30 border-b border-border">
+                    {explanations[currentFile.path]}
+                  </div>
+                )}
+
+                <textarea
+                  value={editedContent[currentFile.path] ?? ""}
+                  onChange={(e) =>
+                    setEditedContent((c) => ({ ...c, [currentFile.path]: e.target.value }))
+                  }
+                  className="w-full min-h-44 p-4 font-mono text-xs bg-transparent text-foreground resize-y focus:outline-none"
+                  placeholder="Ask Gemini above to generate a merged version, or type your resolution here…"
+                  spellCheck={false}
+                  data-testid={`textarea-resolution-${conn.id}`}
+                />
+              </div>
+            </div>
+
+            {/* Footer nav */}
+            <div className="flex items-center justify-between px-5 py-4 border-t border-border flex-shrink-0 bg-background">
+              <p className="text-xs text-muted-foreground">
+                {files.filter((f) => accepted.has(f.path)).length} of {files.length} accepted
+              </p>
+              <div className="flex items-center gap-3">
+                {allAccepted ? (
+                  <button
+                    onClick={applyAll}
+                    className="flex items-center gap-2 px-5 py-2 rounded-lg bg-foreground text-background text-sm font-medium hover:bg-foreground/90 transition-colors"
+                    data-testid={`button-genius-apply-${conn.id}`}
+                  >
+                    <GitMerge className="w-4 h-4" />
+                    Apply all & merge
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => acceptFile(currentFile.path)}
+                    className="flex items-center gap-2 px-5 py-2 rounded-lg bg-foreground text-background text-sm font-medium hover:bg-foreground/90 transition-colors"
+                    data-testid={`button-genius-accept-${conn.id}`}
+                  >
+                    <Check className="w-4 h-4" />
+                    {fileIndex < files.length - 1 ? "Accept & next →" : "Accept"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ConnectionCommits({ projectId, connId, status, aheadBy, behindBy }: {
@@ -472,6 +882,7 @@ export default function ProjectPage() {
   });
 
   const [conflictInfo, setConflictInfo] = useState<{ connId: number; url: string } | null>(null);
+  const [geniusConnId, setGeniusConnId] = useState<number | null>(null);
 
   const resolveConnection = useMutation({
     mutationFn: async ({ connId, action }: { connId: number; action: "merge_to_default" | "update_from_default" }) => {
@@ -1217,15 +1628,26 @@ export default function ProjectPage() {
                             <p data-testid={`text-resolution-${conn.id}`} className="text-sm text-muted-foreground">
                               Both your project ({conn.behind_by} {conn.behind_by === 1 ? "commit" : "commits"}) and this agent ({conn.ahead_by} {conn.ahead_by === 1 ? "commit" : "commits"}) have new changes that need to be combined.
                             </p>
-                            <button
-                              data-testid={`button-auto-resolve-${conn.id}`}
-                              onClick={() => resolveConnection.mutate({ connId: conn.id, action: "merge_to_default" })}
-                              disabled={isResolving}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-yellow-600 text-white hover:bg-yellow-700 transition-colors disabled:opacity-50 whitespace-nowrap"
-                            >
-                              <Zap className="w-3.5 h-3.5" />
-                              {isResolving ? "Resolving..." : "Auto-resolve"}
-                            </button>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <button
+                                data-testid={`button-auto-resolve-${conn.id}`}
+                                onClick={() => resolveConnection.mutate({ connId: conn.id, action: "merge_to_default" })}
+                                disabled={isResolving}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-yellow-600 text-white hover:bg-yellow-700 transition-colors disabled:opacity-50 whitespace-nowrap"
+                              >
+                                <Zap className="w-3.5 h-3.5" />
+                                {isResolving ? "Resolving..." : "Auto-resolve"}
+                              </button>
+                              <button
+                                data-testid={`button-conflict-genius-${conn.id}`}
+                                onClick={() => setGeniusConnId(conn.id)}
+                                disabled={isResolving}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-foreground text-background hover:bg-foreground/90 transition-colors disabled:opacity-50 whitespace-nowrap"
+                              >
+                                <Sparkles className="w-3.5 h-3.5" />
+                                Conflict Genius
+                              </button>
+                            </div>
                           </div>
                           <ConnectionCommits
                             projectId={project.id}
@@ -1239,20 +1661,30 @@ export default function ProjectPage() {
                             <div data-testid={`conflict-message-${conn.id}`} className="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800">
                               <div className="flex items-start gap-2">
                                 <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
-                                <div>
+                                <div className="flex-1">
                                   <p className="text-sm text-red-700 dark:text-red-300">
-                                    These branches edited the same files differently. You'll need to resolve the conflicts on GitHub.
+                                    These branches edited the same files differently. Auto-resolve couldn't handle it automatically.
                                   </p>
-                                  <a
-                                    href={conflictInfo.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    data-testid={`link-conflict-${conn.id}`}
-                                    className="inline-flex items-center gap-1.5 mt-2 text-sm font-medium text-red-600 dark:text-red-400 hover:underline"
-                                  >
-                                    Open in GitHub
-                                    <ExternalLink className="w-3.5 h-3.5" />
-                                  </a>
+                                  <div className="flex items-center gap-3 mt-2">
+                                    <button
+                                      onClick={() => setGeniusConnId(conn.id)}
+                                      className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground bg-foreground/5 hover:bg-foreground/10 px-2.5 py-1 rounded-md transition-colors"
+                                      data-testid={`button-genius-from-conflict-${conn.id}`}
+                                    >
+                                      <Sparkles className="w-3.5 h-3.5" />
+                                      Fix with Conflict Genius
+                                    </button>
+                                    <a
+                                      href={conflictInfo.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      data-testid={`link-conflict-${conn.id}`}
+                                      className="inline-flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400 hover:underline"
+                                    >
+                                      Open in GitHub
+                                      <ExternalLink className="w-3.5 h-3.5" />
+                                    </a>
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -2018,6 +2450,34 @@ export default function ProjectPage() {
             </motion.div>
           </>
         )}
+      </AnimatePresence>
+
+      {/* Conflict Genius modal — full screen overlay */}
+      <AnimatePresence>
+        {geniusConnId !== null && (() => {
+          const geniusConn = project.platform_connections?.find((c) => c.id === geniusConnId) ?? null;
+          if (!geniusConn) return null;
+          return (
+            <motion.div
+              key="genius-modal"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="fixed inset-0 z-50"
+            >
+              <GeniusModal
+                projectId={project.id}
+                conn={geniusConn}
+                onClose={() => setGeniusConnId(null)}
+                onSuccess={() => {
+                  queryClient.invalidateQueries({ queryKey: ["/api/projects", project.id] });
+                  queryClient.invalidateQueries({ queryKey: ["/api/projects", project.id, "connections", geniusConnId, "commits"] });
+                }}
+              />
+            </motion.div>
+          );
+        })()}
       </AnimatePresence>
     </div>
   );
