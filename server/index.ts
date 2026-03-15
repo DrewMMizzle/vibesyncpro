@@ -10,7 +10,8 @@ if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
 }
 
 if (process.env.NODE_ENV === "production" && !process.env.ENCRYPTION_KEY) {
-  console.warn("WARNING: ENCRYPTION_KEY is not set. GitHub access tokens will be stored in plaintext.");
+  console.error("FATAL: ENCRYPTION_KEY environment variable is required in production. Exiting.");
+  process.exit(1);
 }
 
 if (process.env.NODE_ENV === "production" && !process.env.GEMINI_API_KEY) {
