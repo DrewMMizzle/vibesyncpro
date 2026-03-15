@@ -1457,6 +1457,7 @@ export default function ProjectPage() {
               const isAhead = conn.status === "drifted" && conn.ahead_by > 0 && conn.behind_by === 0;
               const isBehind = conn.status === "drifted" && conn.behind_by > 0 && conn.ahead_by === 0;
               const isConflict = conn.status === "conflict";
+              const isDisconnectedWithBranch = conn.status === "disconnected" && !!conn.branch_name;
               const showResolution = isAhead || isBehind || isConflict;
               const isResolving = resolveConnection.isPending;
 
@@ -1572,6 +1573,49 @@ export default function ProjectPage() {
                       </button>
                     </div>
                   </div>
+
+                  {isDisconnectedWithBranch && (
+                    <div data-testid={`disconnected-guidance-${conn.id}`} className="mt-4 pt-4 border-t border-border">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-foreground mb-1">
+                            Branch <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{conn.branch_name}</span> isn't on GitHub yet
+                          </p>
+                          {conn.platform === "replit" ? (
+                            <div className="text-sm text-muted-foreground space-y-2">
+                              <p>This branch exists in your Replit workspace but hasn't been pushed to GitHub. VibeSyncPro can only track branches that are on GitHub.</p>
+                              <ol className="list-decimal list-inside space-y-1 text-xs">
+                                <li>In your Replit workspace, open the <span className="font-medium text-foreground">Git pane</span> (left sidebar)</li>
+                                <li>Find the <span className="font-mono bg-muted px-1 rounded">{conn.branch_name}</span> branch and switch to it</li>
+                                <li>Click <span className="font-medium text-foreground">Push</span> to send it to GitHub</li>
+                                <li>Come back here and click <span className="font-medium text-foreground">Check again</span></li>
+                              </ol>
+                            </div>
+                          ) : conn.platform === "claude_code" ? (
+                            <div className="text-sm text-muted-foreground space-y-2">
+                              <p>This branch may exist locally in your Claude Code workspace but hasn't been pushed to GitHub.</p>
+                              <p className="text-xs">Run this in your terminal, then click <span className="font-medium text-foreground">Check again</span>:</p>
+                              <pre className="text-xs bg-muted px-3 py-2 rounded font-mono">git push origin {conn.branch_name}</pre>
+                            </div>
+                          ) : (
+                            <div className="text-sm text-muted-foreground space-y-2">
+                              <p>This branch may exist locally but hasn't been pushed to GitHub. Push it first, then click <span className="font-medium text-foreground">Check again</span>.</p>
+                              <pre className="text-xs bg-muted px-3 py-2 rounded font-mono">git push origin {conn.branch_name}</pre>
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          data-testid={`button-recheck-${conn.id}`}
+                          onClick={() => syncStatus.mutate()}
+                          disabled={syncStatus.isPending}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-border hover:bg-muted transition-colors disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${syncStatus.isPending ? "animate-spin" : ""}`} />
+                          {syncStatus.isPending ? "Checking..." : "Check again"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {showResolution && (
                     <div data-testid={`resolution-${conn.id}`} className="mt-4 pt-4 border-t border-border">
