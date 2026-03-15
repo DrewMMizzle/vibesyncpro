@@ -1,12 +1,20 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { sessionMiddleware, authRouter, usersRouter, projectsRouter, githubRouter } from "./src/index";
+import { migrateTokenEncryption } from "./src/utils/migrate-tokens";
 
 if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
   console.error("FATAL: SESSION_SECRET environment variable is required in production. Exiting.");
   process.exit(1);
+}
+
+if (process.env.NODE_ENV === "production" && !process.env.ENCRYPTION_KEY) {
+  console.warn("WARNING: ENCRYPTION_KEY is not set. GitHub access tokens will be stored in plaintext.");
+}
+
+if (process.env.NODE_ENV === "production" && !process.env.GEMINI_API_KEY) {
+  console.warn("WARNING: GEMINI_API_KEY is not set. Repo analysis and Conflict Genius features will return 503.");
 }
 
 const app = express();
@@ -78,7 +86,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  await registerRoutes(httpServer, app);
+  await migrateTokenEncryption();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

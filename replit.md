@@ -135,6 +135,8 @@ Per-project timestamped audit trail of sync checks, merges, conflict resolutions
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth app client secret (required for auth) |
 | `GITHUB_CALLBACK_URL` | OAuth callback URL — **required in production** (set to `https://<slug>.replit.app/auth/github/callback`); defaults to `http://localhost:5000/auth/github/callback` in dev |
 | `SESSION_SECRET` | Express session secret (optional in dev, **required** in production — server exits if missing) |
+| `ENCRYPTION_KEY` | 32-byte hex key for AES-256-GCM encryption of GitHub access tokens at rest (optional in dev, warned in production) |
+| `GEMINI_API_KEY` | Google Gemini API key for repo analysis and Conflict Genius features (optional — 503 returned if missing) |
 
 ### Health Check
 
@@ -158,7 +160,15 @@ Per-project timestamped audit trail of sync checks, merges, conflict resolutions
   https://<your-repl-slug>.replit.app/auth/github/callback
   ```
   (The dev callback URL `https://<dev-domain>/auth/github/callback` should remain for local development.)
-- **Required secrets in production**: `DATABASE_URL`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_CALLBACK_URL`, `SESSION_SECRET`
+- **Required secrets in production**: `DATABASE_URL`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_CALLBACK_URL`, `SESSION_SECRET`, `ENCRYPTION_KEY`
+- **Recommended secrets**: `GEMINI_API_KEY` (enables repo analysis and Conflict Genius)
+
+### Security
+
+- **Token encryption**: GitHub OAuth access tokens are encrypted at rest using AES-256-GCM (`server/src/utils/crypto.ts`). On startup, a migration (`server/src/utils/migrate-tokens.ts`) re-encrypts any existing plaintext tokens.
+- **Error boundary**: A React error boundary (`client/src/components/error-boundary.tsx`) wraps the router to catch unhandled component errors and show a recovery UI.
+- **DB pool**: Connection pool configured with `max: 20`, `idleTimeoutMillis: 30s`, `connectionTimeoutMillis: 5s` in `server/db.ts`.
+- **Gemini API key**: Sent via `x-goog-api-key` header (not URL query string) for all Gemini API calls.
 
 ### Key Third-Party Libraries
 
