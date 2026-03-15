@@ -72,6 +72,9 @@ router.get("/conflicts", requireAuth, async (req, res) => {
     if (err instanceof GitHubRateLimitError) {
       return res.status(429).json({ message: (err as Error).message });
     }
+    if ((err as { statusCode?: number }).statusCode === 404) {
+      return res.status(404).json({ message: `Branch '${agentBranch}' was not found in this repository. It may have been renamed or deleted — update the branch name on this connection.` });
+    }
     return res.status(502).json({ message: "Failed to compare branches on GitHub" });
   }
 

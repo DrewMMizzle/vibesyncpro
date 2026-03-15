@@ -909,7 +909,9 @@ export default function ProjectPage() {
           error.conflict_url = body.conflict_url;
           throw error;
         }
-        throw new Error(body.message || "Resolve failed");
+        const error = new Error(body.message || "Resolve failed") as Error & { status: number };
+        error.status = res.status;
+        throw error;
       }
       return res.json();
     },
@@ -926,7 +928,7 @@ export default function ProjectPage() {
       toast({ title });
       setConflictInfo(null);
     },
-    onError: (err: Error & { conflict_url?: string }, variables) => {
+    onError: (err: Error & { conflict_url?: string; status?: number }, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "activity"] });
       if (err.conflict_url) {
         setConflictInfo({ connId: variables.connId, url: err.conflict_url });
@@ -936,6 +938,9 @@ export default function ProjectPage() {
           variant: "destructive",
         });
       } else {
+        if ((err as { status?: number }).status === 404) {
+          queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+        }
         toast({ title: "Resolve failed", description: err.message, variant: "destructive" });
       }
     },

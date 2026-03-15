@@ -336,10 +336,17 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
       if (err instanceof GitHubRateLimitError) {
         return res.status(429).json({ message: err.message });
       }
+      const statusCode = (err as { statusCode?: number }).statusCode;
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
       console.error(`Sync error for connection ${conn.id}:`, errorMessage);
-      errors.push({ id: conn.id, platform: conn.platform, error: errorMessage });
-      results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: conn.status, last_synced_at: conn.last_synced_at?.toISOString() ?? null });
+      if (statusCode === 404) {
+        await storage.updateConnection(conn.id, { status: "disconnected", ahead_by: 0, behind_by: 0, last_synced_at: new Date() });
+        errors.push({ id: conn.id, platform: conn.platform, error: `Branch '${conn.branch_name}' not found in this repository. It may have been renamed or deleted.` });
+        results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: "disconnected", last_synced_at: new Date().toISOString(), ahead_by: 0, behind_by: 0 });
+      } else {
+        errors.push({ id: conn.id, platform: conn.platform, error: errorMessage });
+        results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: conn.status, last_synced_at: conn.last_synced_at?.toISOString() ?? null });
+      }
     }
   }
 
@@ -678,7 +685,8 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
     const githubMsg = githubMsgMatch ? githubMsgMatch[1] : null;
 
     if (statusCode === 404) {
-      return res.status(502).json({ message: `Branch not found on GitHub. It may have been deleted — try rescanning your project.` });
+      await storage.updateConnection(conn.id, { status: "disconnected", ahead_by: 0, behind_by: 0, last_synced_at: new Date() });
+      return res.status(404).json({ message: `Branch '${branchName}' was not found in this repository. It may have been deleted or renamed. Update the branch name on this connection to continue.` });
     }
     if (statusCode === 403) {
       return res.status(502).json({ message: `GitHub blocked the merge. This repo may have branch protection rules that require a pull request or passing checks before merging.` });
