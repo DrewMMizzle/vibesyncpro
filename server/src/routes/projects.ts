@@ -658,6 +658,9 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
       return res.status(429).json({ message: err.message });
     }
     const statusCode = (err as { statusCode?: number }).statusCode;
+    const rawErrMsg = err instanceof Error ? err.message : "Unknown error";
+    console.error(`Resolve error for connection ${conn.id} (status ${statusCode ?? "unknown"}):`, rawErrMsg);
+
     if (statusCode === 409) {
       const base = action === "merge_to_default" ? defaultBranch : branchName;
       const head = action === "merge_to_default" ? branchName : defaultBranch;
@@ -669,9 +672,22 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
         conflict_url: conflictUrl,
       });
     }
-    const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    console.error(`Resolve error for connection ${conn.id}:`, errorMessage);
-    return res.status(502).json({ message: "Failed to merge branches on GitHub. Please try again." });
+
+    const githubMsgMatch = rawErrMsg.match(/"message"\s*:\s*"([^"]+)"/);
+    const githubMsg = githubMsgMatch ? githubMsgMatch[1] : null;
+
+    if (statusCode === 404) {
+      return res.status(502).json({ message: `Branch not found on GitHub. It may have been deleted — try rescanning your project.` });
+    }
+    if (statusCode === 403) {
+      return res.status(502).json({ message: `GitHub blocked the merge. This repo may have branch protection rules that require a pull request or passing checks before merging.` });
+    }
+    if (statusCode === 422) {
+      const detail = githubMsg ?? "The branch may be in an invalid state";
+      return res.status(502).json({ message: `GitHub could not process the merge: ${detail}` });
+    }
+
+    return res.status(502).json({ message: githubMsg ? `GitHub merge failed: ${githubMsg}` : "Failed to merge branches on GitHub. Please try again." });
   }
 });
 
