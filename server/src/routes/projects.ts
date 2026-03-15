@@ -456,6 +456,72 @@ router.patch("/:id/connections/:connId", requireAuth, async (req, res) => {
   });
 });
 
+// GET /api/projects/:id/connections/:connId/commits — fetch commit context from GitHub
+router.get("/:id/connections/:connId/commits", requireAuth, async (req, res) => {
+  const projectId = parseInt(req.params.id as string, 10);
+  const connId = parseInt(req.params.connId as string, 10);
+  if (isNaN(projectId) || isNaN(connId)) return res.status(400).json({ message: "Invalid ID" });
+
+  const project = await storage.getProjectById(projectId);
+  if (!project) return res.status(404).json({ message: "Project not found" });
+  if (project.user_id !== req.session.userId) return res.status(403).json({ message: "Forbidden" });
+
+  if (!project.github_repo_name || !project.github_repo_name.includes("/")) {
+    return res.status(400).json({ message: "No GitHub repo linked to this project" });
+  }
+
+  const conn = await storage.getConnectionById(connId);
+  if (!conn || conn.project_id !== projectId) return res.status(404).json({ message: "Connection not found" });
+  if (!conn.branch_name) return res.json({ ahead: [], behind: [], files: [] });
+
+  let token: string;
+  try {
+    token = await getAccessToken(req.session.userId!);
+  } catch (err) {
+    if (err instanceof NoGitHubTokenError) {
+      return res.status(401).json({ code: "github_token_missing", message: err.message });
+    }
+    return res.status(401).json({ code: "github_token_missing", message: "GitHub access token not found. Please sign in again." });
+  }
+
+  const [owner, repo] = project.github_repo_name.split("/");
+
+  type GitHubCommit = { sha: string; commit: { message: string; author: { name: string; date: string } } };
+  type GitHubFile = { filename: string; status: string };
+
+  try {
+    const fwd = await githubFetch(token, `/repos/${owner}/${repo}/compare/${encodeURIComponent(conn.branch_name)}...HEAD`) as {
+      commits: GitHubCommit[];
+      files?: GitHubFile[];
+    };
+    const bwd = await githubFetch(token, `/repos/${owner}/${repo}/compare/HEAD...${encodeURIComponent(conn.branch_name)}`) as {
+      commits: GitHubCommit[];
+      files?: GitHubFile[];
+    };
+
+    const mapCommit = (c: GitHubCommit) => ({
+      sha: c.sha.slice(0, 7),
+      message: c.commit.message.split("\n")[0].slice(0, 120),
+      author: c.commit.author.name,
+      date: c.commit.author.date,
+    });
+
+    return res.json({
+      behind: fwd.commits.slice(0, 8).map(mapCommit),
+      ahead: bwd.commits.slice(0, 8).map(mapCommit),
+      files: (fwd.files ?? []).slice(0, 20).map((f) => ({ name: f.filename, status: f.status })),
+    });
+  } catch (err) {
+    if (err instanceof GitHubTokenRevokedError) {
+      return res.status(401).json({ code: "github_token_revoked", message: err.message });
+    }
+    if (err instanceof GitHubRateLimitError) {
+      return res.status(429).json({ message: err.message });
+    }
+    return res.status(502).json({ message: "Failed to fetch commit data from GitHub" });
+  }
+});
+
 // POST /api/projects/:id/connections/:connId/resolve — merge branches via GitHub API
 router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) => {
   const projectId = parseInt(req.params.id as string, 10);
