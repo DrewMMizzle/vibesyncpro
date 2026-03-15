@@ -1,161 +1,124 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, Github, GitFork, Globe, Bot, ArrowRight, Loader2 } from "lucide-react";
+import { Github, GitBranch, Merge, Search } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 
-type EntryPath = "fresh" | "replit" | "claude_code" | "existing" | "fork";
-
-const PATH_CARDS: { id: EntryPath; icon: typeof Globe; title: string; desc: string }[] = [
-  { id: "fresh", icon: Sparkles, title: "Start a new project", desc: "I have an idea and want to begin from scratch" },
-  { id: "replit", icon: Globe, title: "Already building in Replit", desc: "I have a Replit project I want to sync" },
-  { id: "claude_code", icon: Bot, title: "Using Claude Code", desc: "I have a branch Claude Code is working on" },
-  { id: "existing", icon: Github, title: "I have a GitHub repo", desc: "Connect an existing repository" },
-  { id: "fork", icon: GitFork, title: "Fork a public repo", desc: "Copy someone else's repo and build on it" },
-];
-
-function hasStayParam() {
-  return new URLSearchParams(window.location.search).has("stay");
-}
-
 export default function Home() {
-  const { user, isLoggedIn, isLoading: authLoading } = useAuth();
+  const { isLoggedIn, isLoading } = useAuth();
   const [, navigate] = useLocation();
-  const [stay] = useState(hasStayParam);
 
   useEffect(() => {
-    if (!authLoading && isLoggedIn && !stay) {
-      const timer = setTimeout(() => navigate("/dashboard"), 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [authLoading, isLoggedIn, stay, navigate]);
+    if (!isLoading && isLoggedIn) navigate("/dashboard");
+  }, [isLoading, isLoggedIn, navigate]);
 
-  const handlePickPath = (path: EntryPath) => {
-    if (!isLoggedIn) {
-      sessionStorage.setItem("onboard_path", path);
-      window.location.href = `/auth/github?redirect=${encodeURIComponent("/onboard")}`;
-      return;
-    }
-    navigate(`/onboard?path=${path}`);
-  };
-
-  const showPathPicker = stay || (!authLoading && !isLoggedIn);
-  const showWelcomeBack = !authLoading && isLoggedIn && !stay;
+  if (isLoading || isLoggedIn) return null;
 
   return (
-    <div className="min-h-screen w-full flex flex-col bg-background">
-      <header className="absolute top-0 left-0 p-6 sm:p-8 z-10">
+    <div className="min-h-screen flex flex-col bg-background">
+      {/* Nav */}
+      <nav className="flex items-center justify-between px-6 sm:px-10 py-5">
         <span
           data-testid="text-wordmark"
-          className="text-sm font-medium tracking-wide text-muted-foreground/50 select-none"
+          className="text-sm font-semibold tracking-wide text-foreground/80 select-none"
         >
           VibeSyncPro
         </span>
-      </header>
+        <a
+          href="/auth/github?redirect=/dashboard"
+          data-testid="link-login"
+          className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Log in
+        </a>
+      </nav>
 
-      <main className="min-h-screen w-full flex items-center justify-center p-6 sm:p-12" style={{ paddingBottom: "10vh" }}>
-        <div className="w-full max-w-2xl mx-auto">
-          {authLoading && !stay && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.3 }}
-              className="flex items-center justify-center"
-              data-testid="loading-state"
+      {/* Hero */}
+      <main className="flex-1 flex flex-col items-center justify-center px-6 sm:px-10">
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          className="max-w-3xl mx-auto text-center"
+        >
+          <h1
+            data-testid="text-hero-headline"
+            className="text-4xl sm:text-5xl md:text-6xl font-light tracking-tight text-foreground leading-[1.1]"
+          >
+            One pane for all your AI&nbsp;agents.
+          </h1>
+          <p
+            data-testid="text-hero-subheadline"
+            className="mt-6 text-base sm:text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed"
+          >
+            VibeSyncPro watches every branch your AI agents touch — Replit, Claude Code, and Computer Use — and tells you exactly what's in sync, what's drifted, and what needs&nbsp;fixing.
+          </p>
+          <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+            <a
+              href="/auth/github?redirect=/onboard"
+              data-testid="button-signup"
+              className="inline-flex items-center gap-2.5 px-7 py-3 rounded-lg bg-foreground text-background text-sm font-medium hover:bg-foreground/90 transition-colors"
             >
-              <Loader2 className="w-6 h-6 text-muted-foreground/40 animate-spin" />
-            </motion.div>
-          )}
+              <Github className="w-4.5 h-4.5" />
+              Sign up with GitHub
+            </a>
+          </div>
+        </motion.div>
 
-          {showWelcomeBack && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-              className="flex flex-col items-center gap-8 text-center"
-              data-testid="welcome-back-view"
-            >
-              <motion.h1
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.2, duration: 0.5 }}
-                data-testid="text-welcome-back"
-                className="text-4xl sm:text-5xl md:text-6xl font-light text-foreground/80 tracking-tight"
-              >
-                Welcome back{user?.username ? `, ${user.username}` : ""}
-              </motion.h1>
+        {/* Features */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          className="mt-24 mb-16 w-full max-w-3xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-4"
+        >
+          <div
+            className="rounded-xl border border-border p-6"
+            data-testid="card-feature-drift"
+          >
+            <div className="w-9 h-9 rounded-full bg-foreground/5 flex items-center justify-center mb-4">
+              <GitBranch className="w-4 h-4 text-foreground/70" />
+            </div>
+            <h3 className="font-medium text-foreground text-sm">Drift detection</h3>
+            <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">
+              Know the moment a branch falls behind.
+            </p>
+          </div>
 
-              <motion.button
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4, duration: 0.4 }}
-                data-testid="button-go-to-dashboard"
-                onClick={() => navigate("/dashboard")}
-                className="flex items-center gap-3 px-8 py-4 rounded-lg border border-border hover:border-foreground/30 hover:shadow-sm transition-all group"
-              >
-                <span className="font-medium text-foreground">Go to Dashboard</span>
-                <ArrowRight className="w-5 h-5 text-foreground/60 group-hover:translate-x-0.5 transition-transform" />
-              </motion.button>
+          <div
+            className="rounded-xl border border-border p-6"
+            data-testid="card-feature-conflict"
+          >
+            <div className="w-9 h-9 rounded-full bg-foreground/5 flex items-center justify-center mb-4">
+              <Merge className="w-4 h-4 text-foreground/70" />
+            </div>
+            <h3 className="font-medium text-foreground text-sm">Conflict resolution</h3>
+            <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">
+              Merge or update branches without leaving the dashboard.
+            </p>
+          </div>
 
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.6, duration: 0.4 }}
-                className="text-sm text-muted-foreground"
-              >
-                Redirecting automatically…
-              </motion.p>
-            </motion.div>
-          )}
-
-          {showPathPicker && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-              className="flex flex-col gap-10"
-            >
-              <motion.h1
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.2, duration: 0.5 }}
-                data-testid="text-heading"
-                className="text-4xl sm:text-5xl md:text-6xl font-light text-foreground/80 tracking-tight"
-              >
-                How are you building?
-              </motion.h1>
-
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.35, duration: 0.5 }}
-                className="grid gap-3"
-              >
-                {PATH_CARDS.map((card, i) => (
-                  <motion.button
-                    key={card.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.4 + i * 0.06, duration: 0.4 }}
-                    data-testid={`button-path-${card.id}`}
-                    onClick={() => handlePickPath(card.id)}
-                    disabled={authLoading}
-                    className="flex items-center gap-4 p-5 rounded-lg border border-border hover:border-foreground/30 hover:shadow-sm transition-all text-left group disabled:opacity-50"
-                  >
-                    <div className="w-10 h-10 rounded-full bg-foreground/5 flex items-center justify-center flex-shrink-0 group-hover:bg-foreground/10 transition-colors">
-                      <card.icon className="w-5 h-5 text-foreground/60" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-foreground">{card.title}</p>
-                      <p className="text-sm text-muted-foreground">{card.desc}</p>
-                    </div>
-                  </motion.button>
-                ))}
-              </motion.div>
-            </motion.div>
-          )}
-        </div>
+          <div
+            className="rounded-xl border border-border p-6"
+            data-testid="card-feature-ghost"
+          >
+            <div className="w-9 h-9 rounded-full bg-foreground/5 flex items-center justify-center mb-4">
+              <Search className="w-4 h-4 text-foreground/70" />
+            </div>
+            <h3 className="font-medium text-foreground text-sm">Ghost branch cleanup</h3>
+            <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">
+              Automatically surface unregistered branches created by AI&nbsp;tools.
+            </p>
+          </div>
+        </motion.div>
       </main>
+
+      {/* Footer */}
+      <footer className="px-6 sm:px-10 py-6 text-center">
+        <p className="text-xs text-muted-foreground/70">
+          &copy; {new Date().getFullYear()} VibeSyncPro
+        </p>
+      </footer>
     </div>
   );
 }
