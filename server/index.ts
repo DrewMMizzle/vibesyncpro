@@ -9,9 +9,16 @@ if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
   process.exit(1);
 }
 
-if (process.env.NODE_ENV === "production" && !process.env.ENCRYPTION_KEY) {
-  console.error("FATAL: ENCRYPTION_KEY environment variable is required in production. Exiting.");
-  process.exit(1);
+if (process.env.NODE_ENV === "production") {
+  const ek = process.env.ENCRYPTION_KEY;
+  if (!ek) {
+    console.error("FATAL: ENCRYPTION_KEY environment variable is required in production. Exiting.");
+    process.exit(1);
+  }
+  if (!/^[0-9a-fA-F]{64}$/.test(ek)) {
+    console.error("FATAL: ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes). Exiting.");
+    process.exit(1);
+  }
 }
 
 if (process.env.NODE_ENV === "production" && !process.env.GEMINI_API_KEY) {
