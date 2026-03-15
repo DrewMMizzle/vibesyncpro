@@ -674,6 +674,7 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
       const head = action === "merge_to_default" ? branchName : defaultBranch;
       const conflictUrl = `https://github.com/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`;
       const platformLabel = PLATFORM_LABELS[conn.platform] ?? conn.platform;
+      await storage.updateConnection(conn.id, { status: "conflict", last_synced_at: new Date() });
       await storage.addActivityLog(projectId, "resolve_conflict", `Conflict detected merging ${platformLabel} branch`, { platform: conn.platform, branch: branchName, action });
       return res.status(409).json({
         message: "These branches edited the same files differently. You'll need to resolve the conflicts on GitHub.",

@@ -931,6 +931,7 @@ export default function ProjectPage() {
     onError: (err: Error & { conflict_url?: string; status?: number }, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "activity"] });
       if (err.conflict_url) {
+        queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
         setConflictInfo({ connId: variables.connId, url: err.conflict_url });
         toast({
           title: "Conflict detected",
