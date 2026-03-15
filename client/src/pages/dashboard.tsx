@@ -237,7 +237,7 @@ export default function Dashboard() {
                                 className="flex items-center gap-1.5"
                                 title={`${conn.platform === "claude_code" ? "Claude Code" : conn.platform === "replit" ? "Replit" : "Computer"}: ${STATUS_LABEL[conn.status] || conn.status}`}
                               >
-                                <Icon className="w-3.5 h-3.5 text-muted-foreground/60" />
+                                <Icon className="w-3.5 h-3.5 text-muted-foreground" />
                                 <span className={`w-2 h-2 rounded-full ${STATUS_DOT[conn.status] || "bg-muted-foreground/30"}`} />
                               </div>
                             );
@@ -248,12 +248,12 @@ export default function Dashboard() {
 
                     <div className="flex flex-col items-end gap-1 shrink-0 ml-4">
                       {project.created_at && (
-                        <span data-testid={`text-project-date-${project.id}`} className="text-xs text-muted-foreground/60">
+                        <span data-testid={`text-project-date-${project.id}`} className="text-xs text-muted-foreground">
                           {new Date(project.created_at).toLocaleDateString()}
                         </span>
                       )}
                       {latestSync && (
-                        <span data-testid={`text-last-synced-${project.id}`} className="flex items-center gap-1 text-xs text-muted-foreground/50">
+                        <span data-testid={`text-last-synced-${project.id}`} className="flex items-center gap-1 text-xs text-muted-foreground">
                           <Clock className="w-3 h-3" />
                           Synced {timeAgo(latestSync)}
                         </span>
