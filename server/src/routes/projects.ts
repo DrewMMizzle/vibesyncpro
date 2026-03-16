@@ -694,10 +694,12 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
       await storage.updateConnection(conn.id, { status: newStatus, ahead_by: freshAhead, behind_by: freshBehind, last_synced_at: new Date() });
       await storage.addActivityLog(projectId, "resolve_conflict", `Conflict detected merging ${platformLabel} branch`, { platform: conn.platform, branch: branchName, action });
 
+      // For a PR creation URL, append ?expand=1 so GitHub opens the PR form directly
+      const prUrl = `https://github.com/${owner}/${repo}/compare/${encodeURIComponent(defaultBranch)}...${encodeURIComponent(branchName)}?expand=1`;
       const message = trueConflict
-        ? "These branches edited the same files differently. You'll need to resolve the conflicts on GitHub."
-        : "This branch is ahead of main but has a complex history that can't be auto-merged. Open a pull request on GitHub to merge it.";
-      return res.status(409).json({ message, conflict_url: conflictUrl });
+        ? "Both sides changed the same files in different ways. Auto-resolve couldn't handle it. Use Conflict Genius to review the differences, or open a pull request on GitHub."
+        : "Auto-merge didn't work because this branch has a non-standard history. Open a pull request on GitHub to merge it — that's the safest path.";
+      return res.status(409).json({ message, conflict_url: trueConflict ? conflictUrl : prUrl });
     }
 
     const githubMsgMatch = rawErrMsg.match(/"message"\s*:\s*"([^"]+)"/);

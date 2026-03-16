@@ -1709,40 +1709,42 @@ export default function ProjectPage() {
                             behindBy={conn.behind_by}
                           />
 
-                          {conflictInfo && conflictInfo.connId === conn.id && (
-                            <div data-testid={`conflict-message-${conn.id}`} className="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800">
-                              <div className="flex items-start gap-2">
-                                <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
-                                <div className="flex-1">
-                                  <p className="text-sm text-red-700 dark:text-red-300">
-                                    {conflictInfo.message}
-                                  </p>
-                                  <div className="flex items-center gap-3 mt-2">
-                                    {conn.behind_by > 0 && (
-                                      <button
-                                        onClick={() => setGeniusConnId(conn.id)}
-                                        className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground bg-foreground/5 hover:bg-foreground/10 px-2.5 py-1 rounded-md transition-colors"
-                                        data-testid={`button-genius-from-conflict-${conn.id}`}
-                                      >
-                                        <Sparkles className="w-3.5 h-3.5" />
-                                        Fix with Conflict Genius
-                                      </button>
-                                    )}
-                                    <a
-                                      href={conflictInfo.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      data-testid={`link-conflict-${conn.id}`}
-                                      className="inline-flex items-center gap-1.5 text-sm text-red-600 dark:text-red-400 hover:underline"
-                                    >
-                                      Open in GitHub
-                                      <ExternalLink className="w-3.5 h-3.5" />
-                                    </a>
-                                  </div>
-                                </div>
+                        </div>
+                      )}
+
+                      {/* Guidance panel — shown for any status after a failed merge attempt */}
+                      {conflictInfo && conflictInfo.connId === conn.id && (
+                        <div data-testid={`conflict-message-${conn.id}`} className="mt-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800">
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                            <div className="flex-1">
+                              <p className="text-sm text-amber-800 dark:text-amber-300">
+                                {conflictInfo.message}
+                              </p>
+                              <div className="flex items-center gap-3 mt-2">
+                                {conn.behind_by > 0 && (
+                                  <button
+                                    onClick={() => setGeniusConnId(conn.id)}
+                                    className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground bg-foreground/5 hover:bg-foreground/10 px-2.5 py-1 rounded-md transition-colors"
+                                    data-testid={`button-genius-from-conflict-${conn.id}`}
+                                  >
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    Fix with Conflict Genius
+                                  </button>
+                                )}
+                                <a
+                                  href={conflictInfo.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  data-testid={`link-conflict-${conn.id}`}
+                                  className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-700 dark:text-amber-400 hover:underline"
+                                >
+                                  Open Pull Request on GitHub
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </a>
                               </div>
                             </div>
-                          )}
+                          </div>
                         </div>
                       )}
                     </div>
