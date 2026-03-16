@@ -279,7 +279,9 @@ function GeniusModal({
         message: data.message ?? (data.success ? "Merge successful!" : "Some conflicts remain"),
       });
       setApplyPhase("done");
-      if (data.success) onSuccess();
+      // Always refresh project data so connection status reflects the updated state
+      // (even on a failed merge the backend updates status from conflict → drifted)
+      onSuccess();
     } catch (err: unknown) {
       setApplyResult({
         success: false,

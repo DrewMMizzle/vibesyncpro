@@ -274,6 +274,9 @@ router.post("/apply", requireAuth, async (req, res) => {
     return res.status(502).json({ message: "Failed to fetch repo info. Files were saved but merge could not be attempted." });
   }
 
+  let mergeSucceeded = false;
+  let mergeFailedMessage: string | null = null;
+
   try {
     await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
       method: "POST",
@@ -283,25 +286,32 @@ router.post("/apply", requireAuth, async (req, res) => {
         commit_message: `Conflict Genius: merge ${agentBranch} after resolving ${resolutions.length} conflict${resolutions.length === 1 ? "" : "s"} via VibeSyncPro`,
       },
     });
+    mergeSucceeded = true;
   } catch (err) {
     const statusCode = (err as { statusCode?: number }).statusCode;
     if (statusCode === 409) {
-      return res.json({
-        success: false,
-        message: "Some conflicts still remain after applying resolutions. There may be additional conflicting files.",
-      });
+      mergeFailedMessage = "Resolutions were applied but the branches still have a deep history conflict that can't be auto-merged. Use your git client to push directly.";
+    } else {
+      return res.status(502).json({ message: "Files were saved but the merge still failed. Try running a sync." });
     }
-    return res.status(502).json({ message: "Files were saved but the merge still failed. Try running a sync." });
   }
 
+  // Always do a fresh comparison and update status — this prevents the infinite conflict loop
+  // by reflecting the true current state (drifted, not conflict, when behind_by=0).
   const comparison = await githubFetch(
     token,
     `/repos/${owner}/${repo}/compare/${encodeURIComponent(defaultBranch)}...${encodeURIComponent(agentBranch)}`
   ) as { ahead_by: number; behind_by: number };
 
   let newStatus = "synced";
-  if (comparison.ahead_by > 0 && comparison.behind_by > 0) newStatus = "conflict";
-  else if (comparison.ahead_by > 0 || comparison.behind_by > 0) newStatus = "drifted";
+  if (mergeSucceeded) {
+    if (comparison.ahead_by > 0 && comparison.behind_by > 0) newStatus = "conflict";
+    else if (comparison.ahead_by > 0 || comparison.behind_by > 0) newStatus = "drifted";
+  } else {
+    // Merge failed — update to drifted (not conflict) so user isn't trapped in a loop.
+    // The branches still differ but Conflict Genius has done what it can.
+    newStatus = comparison.ahead_by > 0 || comparison.behind_by > 0 ? "drifted" : "synced";
+  }
 
   await storage.updateConnection(conn.id, {
     status: newStatus,
@@ -312,16 +322,19 @@ router.post("/apply", requireAuth, async (req, res) => {
 
   await storage.addActivityLog(
     projectId,
-    "resolve_success",
-    `Conflict Genius resolved ${resolutions.length} file${resolutions.length === 1 ? "" : "s"} and merged ${agentBranch}`,
+    mergeSucceeded ? "resolve_success" : "resolve_partial",
+    mergeSucceeded
+      ? `Conflict Genius resolved ${resolutions.length} file${resolutions.length === 1 ? "" : "s"} and merged ${agentBranch}`
+      : `Conflict Genius applied resolutions to ${resolutions.length} file${resolutions.length === 1 ? "" : "s"} on ${agentBranch} — merge still requires manual action`,
     { platform: conn.platform, branch: agentBranch, files: resolutions.length }
   );
 
   return res.json({
-    success: true,
+    success: mergeSucceeded,
     status: newStatus,
     ahead_by: comparison.ahead_by,
     behind_by: comparison.behind_by,
+    message: mergeFailedMessage ?? undefined,
   });
 });
 
