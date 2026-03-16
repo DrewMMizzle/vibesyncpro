@@ -1,4 +1,33 @@
-import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { QueryClient, QueryFunction, QueryCache, MutationCache } from "@tanstack/react-query";
+
+export class GitHubTokenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GitHubTokenError";
+  }
+}
+
+async function handle401(res: Response): Promise<never> {
+  const text = await res.text();
+  let parsed: { code?: string; message?: string } | null = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch { /* not JSON */ }
+
+  if (parsed?.code === "github_token_missing" || parsed?.code === "github_token_revoked") {
+    throw new GitHubTokenError(parsed.message ?? "Your GitHub access has expired. Please sign in again.");
+  }
+
+  queryClient.clear();
+  window.location.href = "/";
+  throw new Error("Session expired");
+}
+
+function handleGlobalError(error: Error) {
+  if (error instanceof GitHubTokenError) {
+    window.dispatchEvent(new CustomEvent("github-token-error", { detail: error.message }));
+  }
+}
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -19,6 +48,10 @@ export async function apiRequest(
     credentials: "include",
   });
 
+  if (res.status === 401) {
+    await handle401(res);
+  }
+
   await throwIfResNotOk(res);
   return res;
 }
@@ -37,11 +70,21 @@ export const getQueryFn: <T>(options: {
       return null;
     }
 
+    if (res.status === 401) {
+      await handle401(res);
+    }
+
     await throwIfResNotOk(res);
     return await res.json();
   };
 
 export const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error) => handleGlobalError(error),
+  }),
+  mutationCache: new MutationCache({
+    onError: (error) => handleGlobalError(error),
+  }),
   defaultOptions: {
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
