@@ -292,7 +292,7 @@ function GeniusModal({
   const fileName = (path: string) => path.split("/").pop() ?? path;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background/98 backdrop-blur-sm" data-testid="genius-modal">
+    <div className="fixed inset-0 z-50 flex flex-col bg-background" data-testid="genius-modal">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-3">
