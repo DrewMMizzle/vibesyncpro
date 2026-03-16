@@ -291,8 +291,8 @@ router.post("/apply", requireAuth, async (req, res) => {
     const statusCode = (err as { statusCode?: number }).statusCode;
     if (statusCode === 409) {
       mergeFailedMessage = conn.platform === "replit"
-        ? "Resolutions were applied but the branches still have a deep history conflict. Open the Git pane in Replit and push your branch from there."
-        : "Resolutions were applied but the branches still have a deep history conflict. Run `git push` from your terminal to push the branch directly.";
+        ? "Resolutions were applied but the branches still have a deep history conflict. In the Replit Git pane, pull first to get the applied changes, then push your branch."
+        : "Resolutions were applied but the branches still have a deep history conflict. Run `git pull` first to get the applied changes, then `git push`.";
     } else {
       return res.status(502).json({ message: "Files were saved but the merge still failed. Try running a sync." });
     }
