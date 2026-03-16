@@ -80,7 +80,13 @@ router.get("/conflicts", requireAuth, async (req, res) => {
 
   const agentChangedFiles = new Set(fwdFiles.map((f) => f.filename));
   const mainChangedFiles = new Set(bwdFiles.map((f) => f.filename));
-  const conflictingPaths = [...agentChangedFiles].filter((f) => mainChangedFiles.has(f));
+  const overlappingPaths = [...agentChangedFiles].filter((f) => mainChangedFiles.has(f));
+
+  // If no overlapping files found (e.g. main has no new commits the agent lacks),
+  // fall back to all files that differ between the branches so Genius can still review them.
+  const conflictingPaths = overlappingPaths.length > 0
+    ? overlappingPaths
+    : fwdFiles.filter((f) => f.status === "modified" || f.status === "added").map((f) => f.filename);
 
   if (conflictingPaths.length === 0) {
     return res.json({ files: [], defaultBranch, agentBranch, message: "No conflicting files detected. Try resyncing." });
