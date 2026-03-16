@@ -883,7 +883,7 @@ export default function ProjectPage() {
     },
   });
 
-  const [conflictInfo, setConflictInfo] = useState<{ connId: number; url: string } | null>(null);
+  const [conflictInfo, setConflictInfo] = useState<{ connId: number; url: string; message: string } | null>(null);
   const [geniusConnId, setGeniusConnId] = useState<number | null>(null);
 
   const resolveConnection = useMutation({
@@ -934,10 +934,10 @@ export default function ProjectPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "activity"] });
       if (err.conflict_url) {
         queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
-        setConflictInfo({ connId: variables.connId, url: err.conflict_url });
+        setConflictInfo({ connId: variables.connId, url: err.conflict_url, message: err.message });
         toast({
           title: "Conflict detected",
-          description: "These branches edited the same files differently. Open in GitHub to resolve.",
+          description: err.message,
           variant: "destructive",
         });
       } else {
@@ -1715,17 +1715,19 @@ export default function ProjectPage() {
                                 <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
                                 <div className="flex-1">
                                   <p className="text-sm text-red-700 dark:text-red-300">
-                                    These branches edited the same files differently. Auto-resolve couldn't handle it automatically.
+                                    {conflictInfo.message}
                                   </p>
                                   <div className="flex items-center gap-3 mt-2">
-                                    <button
-                                      onClick={() => setGeniusConnId(conn.id)}
-                                      className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground bg-foreground/5 hover:bg-foreground/10 px-2.5 py-1 rounded-md transition-colors"
-                                      data-testid={`button-genius-from-conflict-${conn.id}`}
-                                    >
-                                      <Sparkles className="w-3.5 h-3.5" />
-                                      Fix with Conflict Genius
-                                    </button>
+                                    {conn.behind_by > 0 && (
+                                      <button
+                                        onClick={() => setGeniusConnId(conn.id)}
+                                        className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground bg-foreground/5 hover:bg-foreground/10 px-2.5 py-1 rounded-md transition-colors"
+                                        data-testid={`button-genius-from-conflict-${conn.id}`}
+                                      >
+                                        <Sparkles className="w-3.5 h-3.5" />
+                                        Fix with Conflict Genius
+                                      </button>
+                                    )}
                                     <a
                                       href={conflictInfo.url}
                                       target="_blank"

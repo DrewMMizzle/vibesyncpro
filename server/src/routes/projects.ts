@@ -674,12 +674,30 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
       const head = action === "merge_to_default" ? branchName : defaultBranch;
       const conflictUrl = `https://github.com/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`;
       const platformLabel = PLATFORM_LABELS[conn.platform] ?? conn.platform;
-      await storage.updateConnection(conn.id, { status: "conflict", last_synced_at: new Date() });
+
+      // Do a fresh comparison to determine real status — avoid falsely marking as
+      // "conflict" when behind_by=0 (branch is purely ahead, merge failed due to
+      // complex git history / rebase, not a true file conflict).
+      let freshAhead = conn.ahead_by ?? 0;
+      let freshBehind = conn.behind_by ?? 0;
+      try {
+        const cmp = await githubFetch(
+          token,
+          `/repos/${owner}/${repo}/compare/${encodeURIComponent(defaultBranch)}...${encodeURIComponent(branchName)}`
+        ) as { ahead_by: number; behind_by: number };
+        freshAhead = cmp.ahead_by;
+        freshBehind = cmp.behind_by;
+      } catch { /* ignore — fall back to cached values */ }
+
+      const trueConflict = freshAhead > 0 && freshBehind > 0;
+      const newStatus = trueConflict ? "conflict" : "drifted";
+      await storage.updateConnection(conn.id, { status: newStatus, ahead_by: freshAhead, behind_by: freshBehind, last_synced_at: new Date() });
       await storage.addActivityLog(projectId, "resolve_conflict", `Conflict detected merging ${platformLabel} branch`, { platform: conn.platform, branch: branchName, action });
-      return res.status(409).json({
-        message: "These branches edited the same files differently. You'll need to resolve the conflicts on GitHub.",
-        conflict_url: conflictUrl,
-      });
+
+      const message = trueConflict
+        ? "These branches edited the same files differently. You'll need to resolve the conflicts on GitHub."
+        : "This branch is ahead of main but has a complex history that can't be auto-merged. Open a pull request on GitHub to merge it.";
+      return res.status(409).json({ message, conflict_url: conflictUrl });
     }
 
     const githubMsgMatch = rawErrMsg.match(/"message"\s*:\s*"([^"]+)"/);
