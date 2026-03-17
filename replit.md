@@ -86,7 +86,7 @@ Each project can have up to 3 platform connections: `replit`, `claude_code`, `co
 - `ahead_by` and `behind_by` integer columns on `platform_connections` track commit counts from GitHub Compare API
 - Resolution endpoint: `POST /api/projects/:id/connections/:connId/resolve` with `action` field (`merge_to_default` or `update_from_default`) uses GitHub Merges API
 - On merge conflict (GitHub 409), returns `conflict_url` pointing to GitHub compare page for manual resolution
-- Frontend connection cards show plain-English explanations and action buttons: "Merge to main" (ahead), "Update branch" (behind), "Auto-resolve" (conflict)
+- Frontend connection cards show plain-English explanations and action buttons: "Add to project" (ahead), "Send to agent" (behind), "Auto-fix" (conflict)
 
 ### Ghost Branch Discovery
 

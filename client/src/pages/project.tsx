@@ -107,9 +107,9 @@ const STATUS_STYLES: Record<Status, string> = {
 const STATUS_LABELS: Record<Status, string> = {
   disconnected: "Disconnected",
   connected: "Connected",
-  synced: "Synced",
-  drifted: "Drifted",
-  conflict: "Conflict",
+  synced: "Up to date",
+  drifted: "Out of sync",
+  conflict: "Needs attention",
 };
 
 const ALL_PLATFORMS: Platform[] = ["replit", "claude_code", "computer"];
@@ -609,17 +609,16 @@ function ConnectionCommits({ projectId, connId, status, aheadBy, behindBy }: {
       {hasAhead && (
         <div>
           <p className="font-medium text-muted-foreground mb-1.5">
-            {aheadBy === 1 ? "1 new commit" : `${aheadBy} new commits`} from this agent:
+            {aheadBy === 1 ? "1 new change" : `${aheadBy} new changes`} from this agent:
           </p>
           <ul className="space-y-1">
             {data.ahead.map((c) => (
               <li key={c.sha} className="flex items-start gap-2">
                 <span className="font-mono text-muted-foreground/70 shrink-0 mt-0.5">{c.sha}</span>
                 <span className="text-foreground leading-snug">
-                  {c.message}
-                  {c.message.includes("via VibeSyncPro") && (
-                    <span className="ml-1.5 text-muted-foreground/50 font-normal italic">(sync housekeeping)</span>
-                  )}
+                  {c.message.includes("via VibeSyncPro")
+                    ? <span className="text-muted-foreground/60 italic">Automatic sync update</span>
+                    : c.message}
                 </span>
               </li>
             ))}
@@ -629,7 +628,7 @@ function ConnectionCommits({ projectId, connId, status, aheadBy, behindBy }: {
       {hasBehind && (
         <div>
           <p className="font-medium text-muted-foreground mb-1.5">
-            {behindBy === 1 ? "1 commit" : `${behindBy} commits`} in your project this agent hasn't seen:
+            {behindBy === 1 ? "1 update" : `${behindBy} updates`} in your project this agent hasn't received yet:
           </p>
           <ul className="space-y-1">
             {data.behind.map((c) => (
@@ -643,7 +642,7 @@ function ConnectionCommits({ projectId, connId, status, aheadBy, behindBy }: {
       )}
       {status === "conflict" && data.files.length > 0 && (
         <div>
-          <p className="font-medium text-muted-foreground mb-1.5">Files that diverged:</p>
+          <p className="font-medium text-muted-foreground mb-1.5">Files with conflicting changes:</p>
           <ul className="space-y-0.5">
             {data.files.slice(0, 8).map((f) => (
               <li key={f.name} className="flex items-center gap-1.5 text-foreground/80">
@@ -833,11 +832,11 @@ export default function ProjectPage() {
           const label = PLATFORM_LABELS[c.platform as Platform] ?? c.platform;
           if (c.status === "synced") return `${label} is in sync.`;
           if (c.status === "drifted" && c.ahead_by && c.ahead_by > 0)
-            return `${label} is ${c.ahead_by} ${c.ahead_by === 1 ? "commit" : "commits"} ahead on \`${c.branch_name}\`.`;
+            return `${label} has ${c.ahead_by} new ${c.ahead_by === 1 ? "change" : "changes"} ready to add to your project.`;
           if (c.status === "drifted" && c.behind_by && c.behind_by > 0)
-            return `${label} is ${c.behind_by} ${c.behind_by === 1 ? "commit" : "commits"} behind on \`${c.branch_name}\`.`;
+            return `${label} is missing ${c.behind_by} ${c.behind_by === 1 ? "update" : "updates"} from your project.`;
           if (c.status === "conflict")
-            return `${label} has conflicting changes on \`${c.branch_name}\`.`;
+            return `${label} has conflicting changes that need attention.`;
           return `${label}: ${c.status}.`;
         });
         const syncDesc = lines.length > 0
@@ -1063,12 +1062,12 @@ export default function ProjectPage() {
           title = `Assigned ${variables.branchName} to Replit Agent`;
           break;
         case "dismiss":
-          title = `Dismissed ${variables.branchName}`;
+          title = `Hidden: ${variables.branchName}`;
           break;
         default:
           title = "Action completed";
       }
-      const description = variables.action === "dismiss" ? "It will resurface if new commits appear" : undefined;
+      const description = variables.action === "dismiss" ? "It will reappear if new changes are made to that branch" : undefined;
       toast({ title, description });
       setTriageConflictInfo(null);
       scanBranches.mutate();
@@ -1431,7 +1430,7 @@ export default function ProjectPage() {
         {/* Platform Connections Section */}
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-            Platform Connections
+            AI Agents
           </h2>
           <div className="flex items-center gap-2">
             {project.github_repo_name && project.platform_connections.length > 0 && (
@@ -1442,7 +1441,7 @@ export default function ProjectPage() {
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm text-muted-foreground hover:text-foreground border border-border hover:border-foreground/30 transition-all disabled:opacity-50"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${syncStatus.isPending ? "animate-spin" : ""}`} />
-                {syncStatus.isPending ? "Syncing..." : "Refresh Sync"}
+                {syncStatus.isPending ? "Checking..." : "Check for updates"}
               </button>
             )}
             {availablePlatforms.length > 0 && (
@@ -1456,7 +1455,7 @@ export default function ProjectPage() {
                 className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium bg-foreground text-background hover:opacity-90 transition-opacity"
               >
                 <Plus className="w-3.5 h-3.5" />
-                Add Platform
+                Add Agent
               </button>
             )}
           </div>
@@ -1653,7 +1652,7 @@ export default function ProjectPage() {
                         <div>
                           <div className="flex items-start justify-between gap-3">
                             <p data-testid={`text-resolution-${conn.id}`} className="text-sm text-muted-foreground">
-                              This agent has {conn.ahead_by} new {conn.ahead_by === 1 ? "commit" : "commits"} ready to add to your project.
+                              This agent made {conn.ahead_by} new {conn.ahead_by === 1 ? "change" : "changes"} that are ready to add to your project.
                             </p>
                             <button
                               data-testid={`button-merge-to-default-${conn.id}`}
@@ -1662,7 +1661,7 @@ export default function ProjectPage() {
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50 whitespace-nowrap"
                             >
                               <GitMerge className="w-3.5 h-3.5" />
-                              {isResolving ? "Merging..." : "Merge to main"}
+                              {isResolving ? "Adding..." : "Add to project"}
                             </button>
                           </div>
                           <ConnectionCommits
@@ -1674,7 +1673,7 @@ export default function ProjectPage() {
                           />
                           {conn.behind_by === 0 && (
                             <p className="mt-2 text-xs text-muted-foreground/60">
-                              If "Merge to main" fails, use the guidance that appears below or open a pull request on GitHub — VibeSyncPro will show you the link.
+                              If this doesn't work, VibeSyncPro will show you what to do next.
                             </p>
                           )}
                         </div>
@@ -1684,7 +1683,7 @@ export default function ProjectPage() {
                         <div>
                           <div className="flex items-start justify-between gap-3">
                             <p data-testid={`text-resolution-${conn.id}`} className="text-sm text-muted-foreground">
-                              Your project has {conn.behind_by} new {conn.behind_by === 1 ? "commit" : "commits"} that this agent's branch doesn't have yet.
+                              Your project has {conn.behind_by} new {conn.behind_by === 1 ? "update" : "updates"} that this agent hasn't received yet.
                             </p>
                             <button
                               data-testid={`button-update-from-default-${conn.id}`}
@@ -1693,7 +1692,7 @@ export default function ProjectPage() {
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50 whitespace-nowrap"
                             >
                               <ArrowDownToLine className="w-3.5 h-3.5" />
-                              {isResolving ? "Updating..." : "Update branch"}
+                              {isResolving ? "Sending..." : "Send to agent"}
                             </button>
                           </div>
                           <ConnectionCommits
@@ -1710,7 +1709,7 @@ export default function ProjectPage() {
                         <div>
                           <div className="flex items-start justify-between gap-3">
                             <p data-testid={`text-resolution-${conn.id}`} className="text-sm text-muted-foreground">
-                              Both your project ({conn.behind_by} {conn.behind_by === 1 ? "commit" : "commits"}) and this agent ({conn.ahead_by} {conn.ahead_by === 1 ? "commit" : "commits"}) have new changes that need to be combined.
+                              Both your project and this agent made different changes at the same time. They need to be carefully combined before either can continue.
                             </p>
                             <div className="flex items-center gap-2 flex-shrink-0">
                               <button
@@ -1720,7 +1719,7 @@ export default function ProjectPage() {
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-yellow-600 text-white hover:bg-yellow-700 transition-colors disabled:opacity-50 whitespace-nowrap"
                               >
                                 <Zap className="w-3.5 h-3.5" />
-                                {isResolving ? "Resolving..." : "Auto-resolve"}
+                                {isResolving ? "Fixing..." : "Auto-fix"}
                               </button>
                               <button
                                 data-testid={`button-conflict-genius-${conn.id}`}
@@ -1797,7 +1796,7 @@ export default function ProjectPage() {
                 className="flex items-center gap-2 text-sm font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
               >
                 {showDiscovered ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                Discovered Branches
+                Other Branches Found
                 {discoveredBranches.length > 0 && (
                   <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300">
                     {discoveredBranches.length}
@@ -1811,7 +1810,7 @@ export default function ProjectPage() {
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm text-muted-foreground hover:text-foreground border border-border hover:border-foreground/30 transition-all disabled:opacity-50"
               >
                 <Search className={`w-3.5 h-3.5 ${scanBranches.isPending ? "animate-spin" : ""}`} />
-                {scanBranches.isPending ? "Scanning..." : "Scan for branches"}
+                {scanBranches.isPending ? "Scanning..." : "Look for branches"}
               </button>
             </div>
 
@@ -1827,7 +1826,7 @@ export default function ProjectPage() {
                     <div className="text-center py-8 border border-dashed border-border rounded-lg">
                       <FolderGit2 className="w-6 h-6 mx-auto text-muted-foreground/40 mb-2" />
                       <p data-testid="text-no-discovered" className="text-muted-foreground text-sm">
-                        No extra branches found. Click "Scan for branches" to check.
+                        No other branches found. Click "Look for branches" to check.
                       </p>
                     </div>
                   ) : (
@@ -1862,25 +1861,19 @@ export default function ProjectPage() {
                               <p data-testid={`text-discovered-platform-${branch.id}`} className="text-xs text-muted-foreground mt-1 ml-6">
                                 {branch.likely_platform
                                   ? `Looks like it came from your ${PLATFORM_LABELS[branch.likely_platform as Platform] ?? branch.likely_platform} agent`
-                                  : "Origin unknown — not clearly linked to any connected agent"}
+                                  : "Not linked to any of your agents"}
                               </p>
 
                               <p data-testid={`text-discovered-commits-${branch.id}`} className="text-sm text-muted-foreground mt-2 ml-6">
                                 {branch.ahead_by_default > 0
-                                  ? `${branch.ahead_by_default} new ${branch.ahead_by_default === 1 ? "commit" : "commits"} not yet in your project`
-                                  : "No new commits ahead of your project"}
-                                {branch.behind_by_default > 0 && ` · ${branch.behind_by_default} ${branch.behind_by_default === 1 ? "commit" : "commits"} behind`}
+                                  ? `${branch.ahead_by_default} new ${branch.ahead_by_default === 1 ? "change" : "changes"} not yet in your project`
+                                  : "No new changes for your project"}
+                                {branch.behind_by_default > 0 && ` · ${branch.behind_by_default} ${branch.behind_by_default === 1 ? "update" : "updates"} behind your project`}
                               </p>
-
-                              {branch.likely_platform && (
-                                <p data-testid={`text-discovered-parent-${branch.id}`} className="text-xs text-muted-foreground mt-1 ml-6">
-                                  vs {PLATFORM_LABELS[branch.likely_platform as Platform] ?? branch.likely_platform} branch: {branch.ahead_by_parent} ahead, {branch.behind_by_parent} behind
-                                </p>
-                              )}
 
                               {branch.last_commit_at && (
                                 <p data-testid={`text-discovered-lastcommit-${branch.id}`} className="text-[10px] text-muted-foreground mt-1 ml-6">
-                                  Last commit {timeAgo(branch.last_commit_at)}
+                                  Last activity {timeAgo(branch.last_commit_at)}
                                 </p>
                               )}
                             </div>
@@ -1894,7 +1887,7 @@ export default function ProjectPage() {
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
                             >
                               <GitMerge className="w-3 h-3" />
-                              {isTriaging ? "..." : "Merge to main"}
+                              {isTriaging ? "..." : "Add to project"}
                             </button>
 
                             {hasReplit && (
@@ -1925,10 +1918,11 @@ export default function ProjectPage() {
                               data-testid={`button-triage-dismiss-${branch.id}`}
                               onClick={() => triageBranch.mutate({ branchName: branch.branch_name, action: "dismiss" })}
                               disabled={isTriaging}
+                              title="Hide this branch from the list"
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground border border-border hover:border-foreground/30 transition-all disabled:opacity-50"
                             >
                               <EyeOff className="w-3 h-3" />
-                              Dismiss
+                              Hide
                             </button>
                           </div>
 
