@@ -20,6 +20,7 @@ interface Connection {
   id: number;
   platform: Platform;
   branch_name: string | null;
+  platform_url: string | null;
   status: Status;
   ahead_by: number;
   behind_by: number;
@@ -94,6 +95,12 @@ const PLATFORM_ICONS: Record<Platform, React.ReactNode> = {
   replit: <Globe className="w-5 h-5" />,
   claude_code: <Bot className="w-5 h-5" />,
   computer: <Monitor className="w-5 h-5" />,
+};
+
+const PLATFORM_HOME_URLS: Record<Platform, string | null> = {
+  replit: "https://replit.com",
+  claude_code: "https://claude.ai",
+  computer: null,
 };
 
 const STATUS_STYLES: Record<Status, string> = {
@@ -678,6 +685,8 @@ export default function ProjectPage() {
   const [launchBanner, setLaunchBanner] = useState(false);
   const [editingBranchConnId, setEditingBranchConnId] = useState<number | null>(null);
   const [editBranchValue, setEditBranchValue] = useState("");
+  const [editingUrlConnId, setEditingUrlConnId] = useState<number | null>(null);
+  const [editUrlValue, setEditUrlValue] = useState("");
   const [showSetupGuide, setShowSetupGuide] = useState(false);
   const [guideBranches, setGuideBranches] = useState<Record<number, string>>({});
   const [guideSavedIds, setGuideSavedIds] = useState<Set<number>>(new Set());
@@ -809,6 +818,21 @@ export default function ProjectPage() {
     },
     onError: (err: Error) => {
       toast({ title: "Failed to update", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const updateConnectionUrl = useMutation({
+    mutationFn: async ({ connId, platform_url }: { connId: number; platform_url: string | null }) => {
+      const res = await apiRequest("PATCH", `/api/projects/${projectId}/connections/${connId}`, { platform_url });
+      return res.json();
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      setEditingUrlConnId(null);
+      toast({ title: variables.platform_url ? "Link saved" : "Link removed" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to save link", description: err.message, variant: "destructive" });
     },
   });
 
@@ -1567,6 +1591,106 @@ export default function ProjectPage() {
                             </span>
                           </button>
                         )}
+                        {/* Navigation links */}
+                        <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                          {conn.branch_name && project.github_repo_name && (
+                            <a
+                              href={`https://github.com/${project.github_repo_name}/tree/${conn.branch_name}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Open branch on GitHub"
+                              className="text-muted-foreground/40 hover:text-foreground transition-colors"
+                              data-testid={`link-github-branch-${conn.id}`}
+                            >
+                              <GitBranch className="w-3.5 h-3.5" />
+                            </a>
+                          )}
+                          {editingUrlConnId === conn.id ? (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="url"
+                                placeholder={`Paste your ${PLATFORM_LABELS[conn.platform]} project URL…`}
+                                value={editUrlValue}
+                                onChange={(e) => setEditUrlValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && editUrlValue.trim()) {
+                                    updateConnectionUrl.mutate({ connId: conn.id, platform_url: editUrlValue.trim() });
+                                  }
+                                  if (e.key === "Escape") setEditingUrlConnId(null);
+                                }}
+                                className="px-2 py-0.5 text-xs rounded border border-border bg-background text-foreground focus:border-foreground focus:outline-none w-56"
+                                autoFocus
+                                data-testid={`input-platform-url-${conn.id}`}
+                              />
+                              <button
+                                onClick={() => { if (editUrlValue.trim()) updateConnectionUrl.mutate({ connId: conn.id, platform_url: editUrlValue.trim() }); }}
+                                disabled={!editUrlValue.trim() || updateConnectionUrl.isPending}
+                                className="text-foreground hover:opacity-70 disabled:opacity-30 transition-opacity"
+                                data-testid={`button-save-url-${conn.id}`}
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => setEditingUrlConnId(null)}
+                                className="text-muted-foreground hover:text-foreground transition-colors"
+                                data-testid={`button-cancel-url-${conn.id}`}
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : conn.platform_url ? (
+                            <div className="flex items-center gap-1.5">
+                              <a
+                                href={conn.platform_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                                data-testid={`link-platform-url-${conn.id}`}
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                Open project
+                              </a>
+                              <button
+                                onClick={() => { setEditingUrlConnId(conn.id); setEditUrlValue(conn.platform_url ?? ""); }}
+                                className="text-muted-foreground/40 hover:text-foreground transition-colors"
+                                title="Edit link"
+                                data-testid={`button-edit-url-${conn.id}`}
+                              >
+                                <Pencil className="w-2.5 h-2.5" />
+                              </button>
+                              <button
+                                onClick={() => updateConnectionUrl.mutate({ connId: conn.id, platform_url: null })}
+                                className="text-muted-foreground/40 hover:text-foreground transition-colors"
+                                title="Remove link"
+                                data-testid={`button-remove-url-${conn.id}`}
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                          ) : PLATFORM_HOME_URLS[conn.platform] ? (
+                            <div className="flex items-center gap-2">
+                              <a
+                                href={PLATFORM_HOME_URLS[conn.platform]!}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={`Open ${PLATFORM_LABELS[conn.platform]}`}
+                                className="text-muted-foreground/40 hover:text-foreground transition-colors"
+                                data-testid={`link-platform-home-${conn.id}`}
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                              <button
+                                onClick={() => { setEditingUrlConnId(conn.id); setEditUrlValue(""); }}
+                                className="text-[10px] text-muted-foreground/40 hover:text-foreground flex items-center gap-0.5 transition-colors"
+                                title={`Pin your ${PLATFORM_LABELS[conn.platform]} project URL`}
+                                data-testid={`button-add-url-${conn.id}`}
+                              >
+                                <Plus className="w-2.5 h-2.5" />
+                                Add project link
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
 
