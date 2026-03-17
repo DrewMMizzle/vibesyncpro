@@ -615,7 +615,12 @@ function ConnectionCommits({ projectId, connId, status, aheadBy, behindBy }: {
             {data.ahead.map((c) => (
               <li key={c.sha} className="flex items-start gap-2">
                 <span className="font-mono text-muted-foreground/70 shrink-0 mt-0.5">{c.sha}</span>
-                <span className="text-foreground leading-snug">{c.message}</span>
+                <span className="text-foreground leading-snug">
+                  {c.message}
+                  {c.message.includes("via VibeSyncPro") && (
+                    <span className="ml-1.5 text-muted-foreground/50 font-normal italic">(sync housekeeping)</span>
+                  )}
+                </span>
               </li>
             ))}
           </ul>
@@ -935,8 +940,9 @@ export default function ProjectPage() {
       if (err.conflict_url) {
         queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
         setConflictInfo({ connId: variables.connId, url: err.conflict_url, message: err.message });
+        syncStatus.mutate();
         toast({
-          title: "Conflict detected",
+          title: "Merge couldn't complete",
           description: err.message,
           variant: "destructive",
         });
@@ -976,6 +982,20 @@ export default function ProjectPage() {
       setHasAutoExpanded(true);
     }
   }, [discoveredBranches.length, hasAutoExpanded]);
+
+  // Auto-sync when user returns to this tab (e.g. after doing things on GitHub)
+  useEffect(() => {
+    let lastSyncTime = 0;
+    const handleVisibilityChange = () => {
+      if (!document.hidden && Date.now() - lastSyncTime > 30_000) {
+        syncStatus.mutate();
+        lastSyncTime = Date.now();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const scanBranches = useMutation({
     mutationFn: async () => {
@@ -1645,6 +1665,11 @@ export default function ProjectPage() {
                             aheadBy={conn.ahead_by}
                             behindBy={conn.behind_by}
                           />
+                          {conn.behind_by === 0 && (
+                            <p className="mt-2 text-xs text-muted-foreground/60">
+                              If "Merge to main" fails, use the guidance that appears below or open a pull request on GitHub — VibeSyncPro will show you the link.
+                            </p>
+                          )}
                         </div>
                       )}
 
@@ -2525,10 +2550,14 @@ export default function ProjectPage() {
               <GeniusModal
                 projectId={project.id}
                 conn={geniusConn}
-                onClose={() => setGeniusConnId(null)}
+                onClose={() => {
+                  setGeniusConnId(null);
+                  syncStatus.mutate();
+                }}
                 onSuccess={() => {
                   queryClient.invalidateQueries({ queryKey: ["/api/projects", project.id] });
                   queryClient.invalidateQueries({ queryKey: ["/api/projects", project.id, "connections", geniusConnId, "commits"] });
+                  syncStatus.mutate();
                 }}
               />
             </motion.div>
