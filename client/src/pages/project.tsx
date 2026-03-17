@@ -1652,7 +1652,7 @@ export default function ProjectPage() {
                         <div>
                           <div className="flex items-start justify-between gap-3">
                             <p data-testid={`text-resolution-${conn.id}`} className="text-sm text-muted-foreground">
-                              This agent made {conn.ahead_by} new {conn.ahead_by === 1 ? "change" : "changes"} that are ready to add to your project.
+                              This agent made {conn.ahead_by} new {conn.ahead_by === 1 ? "change" : "changes"} {conn.ahead_by === 1 ? "that is" : "that are"} ready to add to your project.
                             </p>
                             <button
                               data-testid={`button-merge-to-default-${conn.id}`}

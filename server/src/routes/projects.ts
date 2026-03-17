@@ -11,6 +11,23 @@ const router = Router();
 
 const VALID_PLATFORMS = ["replit", "claude_code", "computer"] as const;
 
+type GitHubCompare = {
+  ahead_by: number;
+  behind_by: number;
+  commits: Array<{ commit: { message: string } }>;
+};
+
+// Returns the number of commits ahead that are NOT VibeSyncPro housekeeping.
+// When all ahead commits are sync housekeeping we treat the branch as in sync,
+// preventing the endless "Add to project" loop that housekeeping merge commits cause.
+function realAheadBy(cmp: GitHubCompare): number {
+  if (cmp.commits.length < cmp.ahead_by) {
+    // GitHub truncated the list (>250 commits) — can't filter safely, use raw count
+    return cmp.ahead_by;
+  }
+  return cmp.commits.filter((c) => !c.commit.message.includes("via VibeSyncPro")).length;
+}
+
 const PLATFORM_LABELS: Record<string, string> = {
   replit: "Replit",
   claude_code: "Claude Code",
@@ -136,12 +153,13 @@ router.post("/", requireAuth, async (req, res) => {
           const comparison = await githubFetch(
             token,
             `/repos/${owner}/${repo}/compare/${encodeURIComponent(defaultBranch)}...${encodeURIComponent(conn.branch_name)}`
-          ) as { ahead_by: number; behind_by: number };
+          ) as GitHubCompare;
+          const aheadBy = realAheadBy(comparison);
           let status: string;
-          if (comparison.ahead_by === 0 && comparison.behind_by === 0) status = "synced";
-          else if (comparison.ahead_by > 0 && comparison.behind_by > 0) status = "conflict";
+          if (aheadBy === 0 && comparison.behind_by === 0) status = "synced";
+          else if (aheadBy > 0 && comparison.behind_by > 0) status = "conflict";
           else status = "drifted";
-          await storage.updateConnection(conn.id, { status, last_synced_at: new Date(), ahead_by: comparison.ahead_by, behind_by: comparison.behind_by });
+          await storage.updateConnection(conn.id, { status, last_synced_at: new Date(), ahead_by: aheadBy, behind_by: comparison.behind_by });
         } catch {
           // sync error for individual connection — skip
         }
@@ -308,25 +326,26 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
       const comparison = await githubFetch(
         token,
         `/repos/${owner}/${repo}/compare/${encodedBase}...${encodedHead}`
-      ) as { ahead_by: number; behind_by: number; status: string };
+      ) as GitHubCompare;
 
+      const aheadBy = realAheadBy(comparison);
       let status: string;
-      if (comparison.ahead_by === 0 && comparison.behind_by === 0) {
+      if (aheadBy === 0 && comparison.behind_by === 0) {
         status = "synced";
-      } else if (comparison.ahead_by > 0 && comparison.behind_by > 0) {
+      } else if (aheadBy > 0 && comparison.behind_by > 0) {
         status = "conflict";
       } else {
         status = "drifted";
       }
 
-      await storage.updateConnection(conn.id, { status, last_synced_at: new Date(), ahead_by: comparison.ahead_by, behind_by: comparison.behind_by });
+      await storage.updateConnection(conn.id, { status, last_synced_at: new Date(), ahead_by: aheadBy, behind_by: comparison.behind_by });
       results.push({
         id: conn.id,
         platform: conn.platform,
         branch_name: conn.branch_name,
         status,
         last_synced_at: new Date().toISOString(),
-        ahead_by: comparison.ahead_by,
+        ahead_by: aheadBy,
         behind_by: comparison.behind_by,
       });
     } catch (err) {
@@ -628,12 +647,13 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
     const comparison = await githubFetch(
       token,
       `/repos/${owner}/${repo}/compare/${encodedBase}...${encodedHead}`
-    ) as { ahead_by: number; behind_by: number };
+    ) as GitHubCompare;
 
+    const aheadBy = realAheadBy(comparison);
     let newStatus: string;
-    if (comparison.ahead_by === 0 && comparison.behind_by === 0) {
+    if (aheadBy === 0 && comparison.behind_by === 0) {
       newStatus = "synced";
-    } else if (comparison.ahead_by > 0 && comparison.behind_by > 0) {
+    } else if (aheadBy > 0 && comparison.behind_by > 0) {
       newStatus = "conflict";
     } else {
       newStatus = "drifted";
@@ -641,7 +661,7 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
 
     await storage.updateConnection(conn.id, {
       status: newStatus,
-      ahead_by: comparison.ahead_by,
+      ahead_by: aheadBy,
       behind_by: comparison.behind_by,
       last_synced_at: new Date(),
     });
@@ -655,7 +675,7 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
     return res.json({
       id: conn.id,
       status: newStatus,
-      ahead_by: comparison.ahead_by,
+      ahead_by: aheadBy,
       behind_by: comparison.behind_by,
     });
   } catch (err) {
@@ -684,8 +704,8 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
         const cmp = await githubFetch(
           token,
           `/repos/${owner}/${repo}/compare/${encodeURIComponent(defaultBranch)}...${encodeURIComponent(branchName)}`
-        ) as { ahead_by: number; behind_by: number };
-        freshAhead = cmp.ahead_by;
+        ) as GitHubCompare;
+        freshAhead = realAheadBy(cmp);
         freshBehind = cmp.behind_by;
       } catch { /* ignore — fall back to cached values */ }
 

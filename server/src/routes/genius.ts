@@ -300,24 +300,30 @@ router.post("/apply", requireAuth, async (req, res) => {
 
   // Always do a fresh comparison and update status — this prevents the infinite conflict loop
   // by reflecting the true current state (drifted, not conflict, when behind_by=0).
+  type GitHubCompare = { ahead_by: number; behind_by: number; commits: Array<{ commit: { message: string } }> };
   const comparison = await githubFetch(
     token,
     `/repos/${owner}/${repo}/compare/${encodeURIComponent(defaultBranch)}...${encodeURIComponent(agentBranch)}`
-  ) as { ahead_by: number; behind_by: number };
+  ) as GitHubCompare;
+
+  // Filter out VibeSyncPro housekeeping commits so they don't trigger "Out of sync"
+  const effectiveAhead = comparison.commits.length < comparison.ahead_by
+    ? comparison.ahead_by
+    : comparison.commits.filter((c) => !c.commit.message.includes("via VibeSyncPro")).length;
 
   let newStatus = "synced";
   if (mergeSucceeded) {
-    if (comparison.ahead_by > 0 && comparison.behind_by > 0) newStatus = "conflict";
-    else if (comparison.ahead_by > 0 || comparison.behind_by > 0) newStatus = "drifted";
+    if (effectiveAhead > 0 && comparison.behind_by > 0) newStatus = "conflict";
+    else if (effectiveAhead > 0 || comparison.behind_by > 0) newStatus = "drifted";
   } else {
     // Merge failed — update to drifted (not conflict) so user isn't trapped in a loop.
     // The branches still differ but Conflict Genius has done what it can.
-    newStatus = comparison.ahead_by > 0 || comparison.behind_by > 0 ? "drifted" : "synced";
+    newStatus = effectiveAhead > 0 || comparison.behind_by > 0 ? "drifted" : "synced";
   }
 
   await storage.updateConnection(conn.id, {
     status: newStatus,
-    ahead_by: comparison.ahead_by,
+    ahead_by: effectiveAhead,
     behind_by: comparison.behind_by,
     last_synced_at: new Date(),
   });
