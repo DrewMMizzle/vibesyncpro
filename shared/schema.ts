@@ -28,6 +28,7 @@ export const platformConnections = pgTable("platform_connections", {
   project_id: integer("project_id").notNull().references(() => projects.id),
   platform: text("platform").notNull(),
   branch_name: text("branch_name"),
+  platform_url: text("platform_url"),
   status: text("status").notNull().default("disconnected"),
   ahead_by: integer("ahead_by").default(0),
   behind_by: integer("behind_by").default(0),

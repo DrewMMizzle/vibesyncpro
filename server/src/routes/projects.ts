@@ -47,6 +47,7 @@ function formatProject(project: Project, connections: PlatformConnection[]) {
       id: c.id,
       platform: c.platform,
       branch_name: c.branch_name,
+      platform_url: c.platform_url ?? null,
       status: c.status,
       ahead_by: c.ahead_by ?? 0,
       behind_by: c.behind_by ?? 0,
@@ -460,6 +461,7 @@ router.patch("/:id/connections/:connId", requireAuth, async (req, res) => {
 
   const bodySchema = z.object({
     branch_name: z.string().max(255, "Branch name must be 255 characters or fewer").optional().nullable(),
+    platform_url: z.string().url("Must be a valid URL").max(2048).optional().nullable(),
   });
   const parsed = bodySchema.safeParse(req.body);
   if (!parsed.success) {
@@ -478,6 +480,7 @@ router.patch("/:id/connections/:connId", requireAuth, async (req, res) => {
     id: updated.id,
     platform: updated.platform,
     branch_name: updated.branch_name,
+    platform_url: updated.platform_url ?? null,
     status: updated.status,
     last_synced_at: updated.last_synced_at,
   });
