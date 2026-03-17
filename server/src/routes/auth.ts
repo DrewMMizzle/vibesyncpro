@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { upsertUser, findUserById } from "../db/users";
+import crypto from "crypto";
+import { storage } from "../../storage";
 
 const router = Router();
 
@@ -8,7 +9,15 @@ const GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
 const GITHUB_USER_URL = "https://api.github.com/user";
 const SCOPES = "repo read:user";
 
-// GET /auth/github — redirect to GitHub OAuth
+const ALLOWED_REDIRECTS = ["/onboard", "/dashboard"];
+
+declare module "express-session" {
+  interface SessionData {
+    oauthState?: string;
+    postAuthRedirect?: string;
+  }
+}
+
 router.get("/github", (req, res) => {
   const clientId = process.env.GITHUB_CLIENT_ID;
   if (!clientId) {
@@ -18,21 +27,42 @@ router.get("/github", (req, res) => {
   const callbackUrl =
     process.env.GITHUB_CALLBACK_URL || "http://localhost:5000/auth/github/callback";
 
+  const redirect = req.query.redirect as string | undefined;
+  if (redirect && ALLOWED_REDIRECTS.includes(redirect)) {
+    req.session.postAuthRedirect = redirect;
+  }
+
+  const state = crypto.randomBytes(32).toString("hex");
+  req.session.oauthState = state;
+
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: callbackUrl,
     scope: SCOPES,
+    state,
   });
 
-  return res.redirect(`${GITHUB_AUTH_URL}?${params.toString()}`);
+  req.session.save((err) => {
+    if (err) {
+      console.error("Failed to save session before OAuth redirect:", err);
+      return res.status(500).json({ message: "Session error" });
+    }
+    return res.redirect(`${GITHUB_AUTH_URL}?${params.toString()}`);
+  });
 });
 
-// GET /auth/github/callback — exchange code for token, upsert user in DB
 router.get("/github/callback", async (req, res) => {
   const code = req.query.code as string | undefined;
+  const state = req.query.state as string | undefined;
+
   if (!code) {
     return res.status(400).json({ message: "Missing code parameter" });
   }
+
+  if (!state || state !== req.session.oauthState) {
+    return res.status(403).json({ message: "Invalid OAuth state" });
+  }
+  delete req.session.oauthState;
 
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
@@ -43,21 +73,37 @@ router.get("/github/callback", async (req, res) => {
   const callbackUrl =
     process.env.GITHUB_CALLBACK_URL || "http://localhost:5000/auth/github/callback";
 
+  const OAUTH_TIMEOUT_MS = 10_000;
+
   try {
-    // Exchange code for access token
-    const tokenResponse = await fetch(GITHUB_TOKEN_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        client_id: clientId,
-        client_secret: clientSecret,
-        code,
-        redirect_uri: callbackUrl,
-      }),
-    });
+    const oauthController = new AbortController();
+    const oauthTimeout = setTimeout(() => oauthController.abort(), OAUTH_TIMEOUT_MS);
+
+    let tokenResponse: Response;
+    try {
+      tokenResponse = await fetch(GITHUB_TOKEN_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+          redirect_uri: callbackUrl,
+        }),
+        signal: oauthController.signal,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        console.error("OAuth token exchange timed out");
+        return res.redirect("/?error=oauth_timeout");
+      }
+      throw err;
+    } finally {
+      clearTimeout(oauthTimeout);
+    }
 
     if (!tokenResponse.ok) {
       return res.status(502).json({ message: "Failed to exchange code for token" });
@@ -77,13 +123,27 @@ router.get("/github/callback", async (req, res) => {
 
     const accessToken = tokenData.access_token;
 
-    // Fetch user info from GitHub
-    const userResponse = await fetch(GITHUB_USER_URL, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/json",
-      },
-    });
+    const userController = new AbortController();
+    const userTimeout = setTimeout(() => userController.abort(), OAUTH_TIMEOUT_MS);
+
+    let userResponse: Response;
+    try {
+      userResponse = await fetch(GITHUB_USER_URL, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+        },
+        signal: userController.signal,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        console.error("GitHub user info fetch timed out");
+        return res.redirect("/?error=oauth_timeout");
+      }
+      throw err;
+    } finally {
+      clearTimeout(userTimeout);
+    }
 
     if (!userResponse.ok) {
       return res.status(502).json({ message: "Failed to fetch GitHub user info" });
@@ -95,43 +155,45 @@ router.get("/github/callback", async (req, res) => {
       avatar_url: string;
     };
 
-    // Upsert user in database
-    const user = upsertUser(
+    const user = await storage.upsertUser(
       String(userData.id),
       userData.login,
       userData.avatar_url,
       accessToken,
     );
 
-    // Store user ID in session
     req.session.userId = user.id;
 
-    // Redirect to frontend with success
-    return res.redirect("/?auth=success");
+    const postAuthRedirect = req.session.postAuthRedirect;
+    delete req.session.postAuthRedirect;
+    const redirectTo = postAuthRedirect && ALLOWED_REDIRECTS.includes(postAuthRedirect)
+      ? postAuthRedirect
+      : "/dashboard";
+
+    return res.redirect(redirectTo);
   } catch (error) {
     console.error("GitHub OAuth callback error:", error);
     return res.status(500).json({ message: "Internal server error during OAuth" });
   }
 });
 
-// GET /auth/me — return current user info
-router.get("/me", (req, res) => {
+router.get("/me", async (req, res) => {
   if (!req.session.userId) {
     return res.status(401).json({ message: "Not authenticated" });
   }
 
-  const user = findUserById(req.session.userId);
+  const user = await storage.findUserById(req.session.userId);
   if (!user) {
     return res.status(401).json({ message: "Not authenticated" });
   }
 
   return res.json({
+    id: user.id,
     username: user.username,
     avatarUrl: user.avatar_url,
   });
 });
 
-// POST /auth/logout — clear session
 router.post("/logout", (req, res) => {
   req.session.destroy((err) => {
     if (err) {

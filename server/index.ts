@@ -1,10 +1,32 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { sessionMiddleware, authRouter, usersRouter, projectsRouter } from "./src/index";
+import { sessionMiddleware, authRouter, usersRouter, projectsRouter, githubRouter } from "./src/index";
+import { migrateTokenEncryption } from "./src/utils/migrate-tokens";
+
+if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
+  console.error("FATAL: SESSION_SECRET environment variable is required in production. Exiting.");
+  process.exit(1);
+}
+
+if (process.env.NODE_ENV === "production") {
+  const ek = process.env.ENCRYPTION_KEY;
+  if (!ek) {
+    console.error("FATAL: ENCRYPTION_KEY environment variable is required in production. Exiting.");
+    process.exit(1);
+  }
+  if (!/^[0-9a-fA-F]{64}$/.test(ek)) {
+    console.error("FATAL: ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes). Exiting.");
+    process.exit(1);
+  }
+}
+
+if (process.env.NODE_ENV === "production" && !process.env.GEMINI_API_KEY) {
+  console.warn("WARNING: GEMINI_API_KEY is not set. Repo analysis and Conflict Genius features will return 503.");
+}
 
 const app = express();
+app.set("trust proxy", 1);
 const httpServer = createServer(app);
 
 declare module "http" {
@@ -23,11 +45,16 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+app.get("/health", (_req, res) => {
+  return res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
 // Session and auth
 app.use(sessionMiddleware);
 app.use("/auth", authRouter);
 app.use("/api", usersRouter);
 app.use("/api/projects", projectsRouter);
+app.use("/api/github", githubRouter);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -67,7 +94,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  await registerRoutes(httpServer, app);
+  await migrateTokenEncryption();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

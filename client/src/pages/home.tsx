@@ -1,135 +1,124 @@
-import { useState, useRef, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, Check } from "lucide-react";
-import { useCreateProject } from "@/hooks/use-projects";
+import { useEffect } from "react";
+import { motion } from "framer-motion";
+import { Github, GitBranch, Merge, Search } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { useLocation } from "wouter";
 
 export default function Home() {
-  const [description, setDescription] = useState("");
-  const [isSubmitted, setIsSubmitted] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const createProject = useCreateProject();
+  const { isLoggedIn, isLoading } = useAuth();
+  const [, navigate] = useLocation();
 
   useEffect(() => {
-    if (!isSubmitted && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [isSubmitted]);
+    if (!isLoading && isLoggedIn) navigate("/dashboard");
+  }, [isLoading, isLoggedIn, navigate]);
 
-  const handleSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    
-    if (!description.trim() || createProject.isPending) return;
-
-    createProject.mutate(
-      { description: description.trim() },
-      {
-        onSuccess: () => {
-          setIsSubmitted(true);
-        },
-      }
-    );
-  };
-
-  const isFormValid = description.trim().length > 0;
+  if (isLoading || isLoggedIn) return null;
 
   return (
-    <div className="min-h-screen w-full flex flex-col bg-background">
-      <header className="absolute top-0 left-0 p-6 sm:p-8 z-10">
+    <div className="min-h-screen flex flex-col bg-background">
+      {/* Nav */}
+      <nav className="flex items-center justify-between px-6 sm:px-10 py-5">
         <span
           data-testid="text-wordmark"
-          className="text-sm font-medium tracking-wide text-muted-foreground/50 select-none"
+          className="text-sm font-semibold tracking-wide text-foreground/80 select-none"
         >
           VibeSyncPro
         </span>
-      </header>
+        <a
+          href="/auth/github?redirect=/dashboard"
+          data-testid="link-login"
+          className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Log in
+        </a>
+      </nav>
 
-      <main className="min-h-screen w-full flex items-center justify-center p-6 sm:p-12" style={{ paddingBottom: '10vh' }}>
-        <div className="w-full max-w-2xl mx-auto">
-          <AnimatePresence mode="wait">
-            {!isSubmitted ? (
-              <motion.form
-                key="form"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20, filter: "blur(4px)" }}
-                transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-                onSubmit={handleSubmit}
-                className="flex flex-col gap-10"
-              >
-                <motion.h1
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.2, duration: 0.5 }}
-                  data-testid="text-heading"
-                  className="text-4xl sm:text-5xl md:text-6xl font-light text-muted-foreground/40 tracking-tight"
-                >
-                  What are you building?
-                </motion.h1>
+      {/* Hero */}
+      <main className="flex-1 flex flex-col items-center justify-center px-6 sm:px-10">
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          className="max-w-3xl mx-auto text-center"
+        >
+          <h1
+            data-testid="text-hero-headline"
+            className="text-4xl sm:text-5xl md:text-6xl font-light tracking-tight text-foreground leading-[1.1]"
+          >
+            One pane for all your AI&nbsp;agents.
+          </h1>
+          <p
+            data-testid="text-hero-subheadline"
+            className="mt-6 text-base sm:text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed"
+          >
+            VibeSyncPro connects to your GitHub repos and watches every branch your AI agents touch — Replit, Claude Code, and Computer Use — telling you exactly what's in sync, what's drifted, and what needs&nbsp;fixing.
+          </p>
+          <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+            <a
+              href="/auth/github?redirect=/onboard"
+              data-testid="button-signup"
+              className="inline-flex items-center gap-2.5 px-7 py-3 rounded-lg bg-foreground text-background text-sm font-medium hover:bg-foreground/90 transition-colors"
+            >
+              <Github className="w-4.5 h-4.5" />
+              Sign up with GitHub
+            </a>
+          </div>
+        </motion.div>
 
-                <input
-                  ref={inputRef}
-                  id="description"
-                  data-testid="input-description"
-                  type="text"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="a todo app, a portfolio site..."
-                  className="w-full bg-transparent text-2xl sm:text-3xl font-light text-foreground placeholder:text-muted-foreground/25 border-b-2 border-muted hover:border-muted-foreground/50 focus:border-foreground focus:outline-none focus:ring-0 pb-4 transition-colors rounded-none"
-                  autoComplete="off"
-                  spellCheck="false"
-                />
+        {/* Features */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          className="mt-24 mb-16 w-full max-w-3xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-4"
+        >
+          <div
+            className="rounded-xl border border-border p-6"
+            data-testid="card-feature-drift"
+          >
+            <div className="w-9 h-9 rounded-full bg-foreground/5 flex items-center justify-center mb-4">
+              <GitBranch className="w-4 h-4 text-foreground/70" />
+            </div>
+            <h3 className="font-medium text-foreground text-sm">Drift detection</h3>
+            <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">
+              Know the moment a branch falls behind.
+            </p>
+          </div>
 
-                <motion.div 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.4, duration: 0.5 }}
-                  className="flex items-center"
-                >
-                  <button
-                    type="submit"
-                    data-testid="button-get-started"
-                    disabled={!isFormValid || createProject.isPending}
-                    className={`
-                      group flex items-center gap-3 px-8 py-4 rounded-full text-base font-medium
-                      transition-all duration-300 ease-out
-                      ${isFormValid && !createProject.isPending
-                        ? 'bg-foreground text-background shadow-lg cursor-pointer' 
-                        : 'bg-muted-foreground/15 text-muted-foreground/40 cursor-not-allowed'}
-                    `}
-                  >
-                    {createProject.isPending ? "Starting..." : "Get Started"}
-                    {!createProject.isPending && (
-                      <ArrowRight 
-                        className={`w-5 h-5 transition-transform duration-300 ${isFormValid ? 'group-hover:translate-x-1' : ''}`} 
-                      />
-                    )}
-                  </button>
-                </motion.div>
-              </motion.form>
-            ) : (
-              <motion.div
-                key="success"
-                initial={{ opacity: 0, y: 20, filter: "blur(4px)" }}
-                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-                className="flex flex-col items-start gap-6"
-              >
-                <div className="w-16 h-16 rounded-full bg-foreground/5 flex items-center justify-center text-foreground mb-2">
-                  <Check className="w-8 h-8" />
-                </div>
-                <h1
-                  data-testid="text-success-message"
-                  className="text-4xl sm:text-5xl md:text-6xl font-light text-foreground tracking-tight"
-                >
-                  Got it.
-                  <br />
-                  <span className="text-muted-foreground">Let's get to work.</span>
-                </h1>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+          <div
+            className="rounded-xl border border-border p-6"
+            data-testid="card-feature-conflict"
+          >
+            <div className="w-9 h-9 rounded-full bg-foreground/5 flex items-center justify-center mb-4">
+              <Merge className="w-4 h-4 text-foreground/70" />
+            </div>
+            <h3 className="font-medium text-foreground text-sm">Conflict resolution</h3>
+            <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">
+              Merge or update branches without leaving the dashboard.
+            </p>
+          </div>
+
+          <div
+            className="rounded-xl border border-border p-6"
+            data-testid="card-feature-ghost"
+          >
+            <div className="w-9 h-9 rounded-full bg-foreground/5 flex items-center justify-center mb-4">
+              <Search className="w-4 h-4 text-foreground/70" />
+            </div>
+            <h3 className="font-medium text-foreground text-sm">Ghost branch cleanup</h3>
+            <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">
+              Automatically surface unregistered branches created by AI&nbsp;tools.
+            </p>
+          </div>
+        </motion.div>
       </main>
+
+      {/* Footer */}
+      <footer className="px-6 sm:px-10 py-6 text-center">
+        <p className="text-xs text-muted-foreground/70">
+          &copy; {new Date().getFullYear()} VibeSyncPro
+        </p>
+      </footer>
     </div>
   );
 }
