@@ -1588,8 +1588,15 @@ export default function ProjectPage() {
 
                       <button
                         data-testid={`button-delete-connection-${conn.id}`}
-                        onClick={() => deleteConnection.mutate(conn.id)}
+                        onClick={() => {
+                          const label = PLATFORM_LABELS[conn.platform] ?? conn.platform;
+                          const branch = conn.branch_name ? ` (${conn.branch_name})` : "";
+                          if (window.confirm(`Remove the ${label}${branch} connection from this project? This only removes it from VibeSyncPro — nothing on GitHub is changed.`)) {
+                            deleteConnection.mutate(conn.id);
+                          }
+                        }}
                         disabled={deleteConnection.isPending}
+                        title="Remove this connection"
                         className="text-muted-foreground/40 hover:text-red-500 transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
