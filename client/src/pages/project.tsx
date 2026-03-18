@@ -1003,20 +1003,35 @@ export default function ProjectPage() {
   const [scoutingIds, setScoutingIds] = useState<Set<number>>(new Set());
   const [scoutFileExpanded, setScoutFileExpanded] = useState<Set<number>>(new Set());
 
-  const scoutBranch = async (branchId: number, branchName: string) => {
-    if (scoutingIds.has(branchId) || (scoutResults[branchId] && typeof scoutResults[branchId] !== "string")) return;
-    setScoutResults((prev) => { const n = { ...prev }; delete n[branchId]; return n; });
-    setScoutingIds((s) => new Set([...s, branchId]));
-    try {
+  const scoutMutation = useMutation({
+    mutationFn: async ({ branchId, branchName }: { branchId: number; branchName: string }) => {
       const res = await apiRequest("POST", `/api/projects/${projectId}/branches/scout`, { branch_name: branchName });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Scout failed");
-      setScoutResults((prev) => ({ ...prev, [branchId]: data as ScoutResult }));
-    } catch (err) {
-      setScoutResults((prev) => ({ ...prev, [branchId]: err instanceof Error ? err.message : "Investigation failed" }));
-    } finally {
+      let data: Record<string, unknown>;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error("Gemini returned an unexpected response. Please try again.");
+      }
+      if (!res.ok) throw new Error((data.message as string) || "Investigation failed");
+      return { branchId, result: data as unknown as ScoutResult };
+    },
+    onMutate: ({ branchId }) => {
+      setScoutResults((prev) => { const n = { ...prev }; delete n[branchId]; return n; });
+      setScoutingIds((s) => new Set([...s, branchId]));
+    },
+    onSuccess: ({ branchId, result }) => {
+      setScoutResults((prev) => ({ ...prev, [branchId]: result }));
       setScoutingIds((s) => { const n = new Set(s); n.delete(branchId); return n; });
-    }
+    },
+    onError: (err: Error, { branchId }) => {
+      setScoutResults((prev) => ({ ...prev, [branchId]: err.message || "Investigation failed" }));
+      setScoutingIds((s) => { const n = new Set(s); n.delete(branchId); return n; });
+    },
+  });
+
+  const scoutBranch = (branchId: number, branchName: string) => {
+    if (scoutingIds.has(branchId) || (scoutResults[branchId] && typeof scoutResults[branchId] !== "string")) return;
+    scoutMutation.mutate({ branchId, branchName });
   };
 
   const { data: discoveredData } = useQuery<{ discovered_branches: DiscoveredBranchItem[] }>({
