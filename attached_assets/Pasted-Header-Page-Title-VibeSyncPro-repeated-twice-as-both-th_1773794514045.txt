@@ -1,0 +1,24 @@
+Header / Page Title
+"VibeSyncPro" repeated twice (as both the page title H1 and the subtitle directly below it) is redundant and looks like a data display bug. The subtitle should be the project name or a status summary — something like "Last synced just now · 2 agents active" would be far more useful. Also consider a small repo avatar/favicon pulled from GitHub next to the project name.
+Section Labels
+All-caps spaced labels ("GITHUB REPOSITORY", "AI AGENTS") are a dated pattern — it reads 2018 Stripe. Modern dashboards use slightly larger, medium-weight labels in a dark neutral, no all-caps, with a thin separator line or just whitespace doing the work. Compare Linear or Vercel's dashboard section headers.
+Agent Cards
+These are doing too little work for the space they occupy. Suggestions:
+
+Add a colored left-border accent per agent (Replit = orange, Claude Code = purple/blue) — gives instant visual identity at a glance
+The branch name ("replit-agent", "claude/work") should be more prominent, not small gray text
+"Up to date" in green is good, but add a last-commit SHA snippet or last-activity timestamp on the same line rather than stacked below
+"+ Add project link" is too quiet — it's a real CTA, give it a faint outlined button treatment
+The trash icon should only appear on hover, not always-visible — always-visible destructive actions create anxiety
+
+"Check for updates" Button
+This is a primary workflow action buried as a ghost button next to "Add Agent." It should be more prominent, or at minimum have a subtle icon animation (spinning refresh on hover) to communicate it does something live.
+Collapsed Sections (Other Branches / Activity)
+"OTHER BRANCHES FOUND" and "ACTIVITY 50" as collapsed accordions is hiding your most interesting data. Activity with 50 events is a signal-rich feed — consider showing the last 2–3 activity items inline (not collapsed) as a mini timeline. That's the kind of live pulse that makes a dashboard feel alive vs. static.
+Danger Zone
+Classic pattern, but the red "DANGER ZONE" label at full saturation draws the eye immediately on page load, which is exactly wrong for a destructive section. Tone it down — muted red or just a thin red left-border on the card, with the label in dark gray. Let the Delete button carry the red, not the section header.
+The FAB (bottom-right circle button)
+What does that do? If it's a global action it needs a tooltip on hover. Unlabeled FABs on desktop apps are a mobile pattern that doesn't translate — either label it or replace it with a contextual action in the header.
+Layout & Whitespace
+The page is very wide with content centered in a narrow column — the side margins are enormous. Either widen the content column to ~800px or add a left sidebar with project navigation (useful if users have multiple projects). Right now it feels like a mobile layout stretched onto desktop.
+The single biggest upgrade: make the agent cards wider, give each a colored identity accent, and surface the branch + last-commit info prominently. That's the core data this dashboard exists to show — it should be the hero of each card, not buried in small gray text.
