@@ -16,6 +16,7 @@ interface ConnectionItem {
   platform: string;
   status: Status;
   last_synced_at: string | null;
+  stuck_state: string | null;
 }
 
 interface ProjectItem {
@@ -79,6 +80,10 @@ function getWorstStatus(connections: ConnectionItem[]): Status | null {
     if (connections.some((c) => c.status === s)) return s;
   }
   return null;
+}
+
+function hasStuckRebase(connections: ConnectionItem[]): boolean {
+  return connections.some((c) => c.stuck_state === "rebase_in_progress");
 }
 
 export default function Dashboard() {
@@ -181,6 +186,7 @@ export default function Dashboard() {
               const worst = getWorstStatus(project.platform_connections);
               const hasConflict = project.platform_connections.some((c) => c.status === "conflict");
               const hasDrift = project.platform_connections.some((c) => c.status === "drifted");
+              const isStuck = hasStuckRebase(project.platform_connections);
               const latestSync = getLatestSync(project.platform_connections);
 
               return (
@@ -192,11 +198,13 @@ export default function Dashboard() {
                   data-testid={`card-project-${project.id}`}
                   onClick={() => navigate(`/projects/${project.id}`)}
                   className={`border rounded-lg p-5 hover:shadow-sm transition-all cursor-pointer ${
-                    hasConflict
-                      ? "border-red-300 dark:border-red-800 bg-red-50/30 dark:bg-red-950/10"
-                      : hasDrift
-                        ? "border-yellow-300 dark:border-yellow-800 bg-yellow-50/20 dark:bg-yellow-950/10"
-                        : "border-border hover:border-foreground/30"
+                    isStuck
+                      ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-950/10"
+                      : hasConflict
+                        ? "border-red-300 dark:border-red-800 bg-red-50/30 dark:bg-red-950/10"
+                        : hasDrift
+                          ? "border-yellow-300 dark:border-yellow-800 bg-yellow-50/20 dark:bg-yellow-950/10"
+                          : "border-border hover:border-foreground/30"
                   }`}
                 >
                   <div className="flex items-start justify-between">
@@ -205,13 +213,19 @@ export default function Dashboard() {
                         <h2 data-testid={`text-project-name-${project.id}`} className="font-medium text-foreground truncate">
                           {project.name}
                         </h2>
-                        {hasConflict && (
+                        {isStuck && (
+                          <span data-testid={`badge-stuck-${project.id}`} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 shrink-0">
+                            <AlertTriangle className="w-3 h-3" />
+                            Possibly Stuck
+                          </span>
+                        )}
+                        {!isStuck && hasConflict && (
                           <span data-testid={`badge-conflict-${project.id}`} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 shrink-0">
                             <AlertTriangle className="w-3 h-3" />
                             Conflict
                           </span>
                         )}
-                        {!hasConflict && hasDrift && (
+                        {!isStuck && !hasConflict && hasDrift && (
                           <span data-testid={`badge-drift-${project.id}`} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300 shrink-0">
                             Drifted
                           </span>
