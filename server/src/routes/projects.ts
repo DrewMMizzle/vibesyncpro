@@ -15,6 +15,11 @@ type GitHubCompare = {
   ahead_by: number;
   behind_by: number;
   commits: Array<{ commit: { message: string } }>;
+  head_commit?: { sha: string };
+};
+
+type GitHubBranchRef = {
+  commit: { sha: string };
 };
 
 // Returns the number of commits ahead that are NOT VibeSyncPro housekeeping.
@@ -52,6 +57,8 @@ function formatProject(project: Project, connections: PlatformConnection[]) {
       ahead_by: c.ahead_by ?? 0,
       behind_by: c.behind_by ?? 0,
       last_synced_at: c.last_synced_at,
+      stuck_state: c.stuck_state ?? null,
+      stuck_since: c.stuck_since ?? null,
     })),
   };
 }
@@ -305,18 +312,18 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
     return res.status(502).json({ message: "Failed to fetch repository info from GitHub" });
   }
 
-  const results: Array<{ id: number; platform: string; branch_name: string | null; status: string; last_synced_at: string | null; ahead_by?: number; behind_by?: number }> = [];
+  const results: Array<{ id: number; platform: string; branch_name: string | null; status: string; last_synced_at: string | null; ahead_by?: number; behind_by?: number; stuck_state?: string | null; stuck_since?: string | null; is_newly_stuck?: boolean }> = [];
   const errors: Array<{ id: number; platform: string; error: string }> = [];
 
   for (const conn of connections) {
     if (!conn.branch_name) {
-      await storage.updateConnection(conn.id, { status: "disconnected", ahead_by: 0, behind_by: 0, last_synced_at: new Date() });
+      await storage.updateConnection(conn.id, { status: "disconnected", ahead_by: 0, behind_by: 0, last_synced_at: new Date(), stuck_state: null, stuck_since: null });
       results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: "disconnected", last_synced_at: new Date().toISOString(), ahead_by: 0, behind_by: 0 });
       continue;
     }
 
     if (conn.branch_name === defaultBranch) {
-      await storage.updateConnection(conn.id, { status: "synced", ahead_by: 0, behind_by: 0, last_synced_at: new Date() });
+      await storage.updateConnection(conn.id, { status: "synced", ahead_by: 0, behind_by: 0, last_synced_at: new Date(), stuck_state: null, stuck_since: null });
       results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: "synced", last_synced_at: new Date().toISOString(), ahead_by: 0, behind_by: 0 });
       continue;
     }
@@ -339,7 +346,43 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
         status = "drifted";
       }
 
-      await storage.updateConnection(conn.id, { status, last_synced_at: new Date(), ahead_by: aheadBy, behind_by: comparison.behind_by });
+      // Stuck rebase detection: if the branch is in conflict, check whether
+      // the HEAD SHA has changed since the last sync. If not, it may be stuck mid-rebase.
+      let currentSha: string | null = null;
+      if (status === "conflict") {
+        try {
+          const branchInfo = await githubFetch(
+            token,
+            `/repos/${owner}/${repo}/branches/${encodedHead}`
+          ) as GitHubBranchRef;
+          currentSha = branchInfo.commit.sha;
+        } catch {
+          // ignore — stuck detection is best-effort
+        }
+      }
+
+      const wasStuck = conn.stuck_state === "rebase_in_progress";
+      let stuckState: string | null = null;
+      let stuckSince: Date | null = null;
+
+      if (status === "conflict" && currentSha && currentSha === conn.last_commit_sha) {
+        // SHA unchanged since last sync — flag as stuck
+        stuckState = "rebase_in_progress";
+        stuckSince = wasStuck ? (conn.stuck_since ?? new Date()) : new Date();
+      }
+      // If not conflict, clear stuck state (conflict resolved)
+
+      const updateFields: Parameters<typeof storage.updateConnection>[1] = {
+        status,
+        last_synced_at: new Date(),
+        ahead_by: aheadBy,
+        behind_by: comparison.behind_by,
+        stuck_state: stuckState,
+        stuck_since: stuckSince,
+      };
+      if (currentSha) updateFields.last_commit_sha = currentSha;
+
+      await storage.updateConnection(conn.id, updateFields);
       results.push({
         id: conn.id,
         platform: conn.platform,
@@ -348,6 +391,9 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
         last_synced_at: new Date().toISOString(),
         ahead_by: aheadBy,
         behind_by: comparison.behind_by,
+        stuck_state: stuckState,
+        stuck_since: stuckSince ? stuckSince.toISOString() : null,
+        is_newly_stuck: stuckState === "rebase_in_progress" && !wasStuck,
       });
     } catch (err) {
       if (err instanceof GitHubTokenRevokedError) {
@@ -360,7 +406,7 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
       console.error(`Sync error for connection ${conn.id}:`, errorMessage);
       if (statusCode === 404) {
-        await storage.updateConnection(conn.id, { status: "disconnected", ahead_by: 0, behind_by: 0, last_synced_at: new Date() });
+        await storage.updateConnection(conn.id, { status: "disconnected", ahead_by: 0, behind_by: 0, last_synced_at: new Date(), stuck_state: null, stuck_since: null });
         errors.push({ id: conn.id, platform: conn.platform, error: `Branch '${conn.branch_name}' not found in this repository. It may have been renamed or deleted.` });
         results.push({ id: conn.id, platform: conn.platform, branch_name: conn.branch_name, status: "disconnected", last_synced_at: new Date().toISOString(), ahead_by: 0, behind_by: 0 });
       } else {
@@ -381,6 +427,11 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
       await storage.addActivityLog(projectId, "sync_drifted", `${platformLabel} branch has drifted (${detail})`, { platform: r.platform, branch: r.branch_name, ahead_by: r.ahead_by, behind_by: r.behind_by });
     } else if (r.status === "conflict") {
       await storage.addActivityLog(projectId, "sync_conflict", `${platformLabel} branch has conflicts`, { platform: r.platform, branch: r.branch_name, ahead_by: r.ahead_by, behind_by: r.behind_by });
+    }
+    // Log when a branch first transitions into stuck_rebase state
+    if ((r as { is_newly_stuck?: boolean }).is_newly_stuck) {
+      const platformLabel2 = PLATFORM_LABELS[r.platform] ?? r.platform;
+      await storage.addActivityLog(projectId, "stuck_rebase_detected", `${platformLabel2} branch "${r.branch_name}" appears stuck mid-rebase`, { platform: r.platform, branch: r.branch_name });
     }
   }
   for (const e of errors) {

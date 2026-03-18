@@ -25,6 +25,8 @@ interface Connection {
   ahead_by: number;
   behind_by: number;
   last_synced_at: string | null;
+  stuck_state: string | null;
+  stuck_since: string | null;
 }
 
 interface ProjectDetail {
@@ -154,6 +156,7 @@ function getActivityIcon(eventType: string) {
     case "branch_dismissed": return <EyeOff className="w-4 h-4" />;
     case "branch_assigned": return <Send className="w-4 h-4" />;
     case "branch_conflict": return <CircleX className="w-4 h-4" />;
+    case "stuck_rebase_detected": return <AlertTriangle className="w-4 h-4" />;
     default: return <CircleDot className="w-4 h-4" />;
   }
 }
@@ -171,6 +174,7 @@ function getActivityColor(eventType: string): string {
     case "branch_dismissed": return "text-muted-foreground";
     case "branch_assigned": return "text-blue-500";
     case "branch_conflict": return "text-red-500";
+    case "stuck_rebase_detected": return "text-amber-500";
     default: return "text-muted-foreground";
   }
 }
@@ -699,6 +703,7 @@ export default function ProjectPage() {
   const [guideTargetConns, setGuideTargetConns] = useState<Connection[]>([]);
   const [guideIntroDone, setGuideIntroDone] = useState(false);
   const [dismissedSharedWarning, setDismissedSharedWarning] = useState(false);
+  const [openRescueGuides, setOpenRescueGuides] = useState<Set<number>>(new Set());
   const { toast } = useToast();
 
   const projectId = params?.id ? parseInt(params.id, 10) : null;
@@ -1844,6 +1849,130 @@ export default function ProjectPage() {
 
                       {isConflict && (
                         <div>
+                          {/* Stuck rebase banner */}
+                          {conn.stuck_state === "rebase_in_progress" && (
+                            <div
+                              data-testid={`banner-stuck-rebase-${conn.id}`}
+                              className="mb-4 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 p-4"
+                            >
+                              <div className="flex items-start gap-3">
+                                <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-semibold text-sm text-amber-800 dark:text-amber-300">
+                                    Possibly Stuck — Rebase in Progress
+                                  </p>
+                                  <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
+                                    The <span className="font-mono text-xs bg-amber-100 dark:bg-amber-900 px-1.5 py-0.5 rounded">{conn.branch_name}</span> branch appears to be stuck in the middle of a rebase — no new changes have been pushed{conn.stuck_since ? ` since ${timeAgo(conn.stuck_since)}` : ""}. This often happens when a rebase was started in a terminal but not finished.
+                                  </p>
+                                  <p className="text-xs text-amber-600 dark:text-amber-500 mt-1.5">
+                                    A rebase is a way of replaying your changes on top of the latest code. When it gets interrupted, your local repository can end up in a partial state that prevents new pushes.
+                                  </p>
+
+                                  {/* Rescue Guide toggle */}
+                                  <button
+                                    data-testid={`button-rescue-guide-toggle-${conn.id}`}
+                                    onClick={() => {
+                                      setOpenRescueGuides((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(conn.id)) next.delete(conn.id);
+                                        else next.add(conn.id);
+                                        return next;
+                                      });
+                                    }}
+                                    className="mt-3 flex items-center gap-1.5 text-sm font-medium text-amber-800 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-200 transition-colors"
+                                  >
+                                    {openRescueGuides.has(conn.id) ? (
+                                      <ChevronDown className="w-4 h-4" />
+                                    ) : (
+                                      <ChevronRight className="w-4 h-4" />
+                                    )}
+                                    Rescue Guide
+                                  </button>
+
+                                  {openRescueGuides.has(conn.id) && (
+                                    <div
+                                      data-testid={`panel-rescue-guide-${conn.id}`}
+                                      className="mt-3 space-y-4 border-t border-amber-200 dark:border-amber-700 pt-3"
+                                    >
+                                      <p className="text-xs text-amber-700 dark:text-amber-400">
+                                        Open a terminal on the machine where you're working (your local computer, your Replit shell, or your Claude Code terminal) and run one of these commands:
+                                      </p>
+
+                                      {/* Option A: Abort */}
+                                      <div data-testid={`rescue-option-abort-${conn.id}`} className="rounded-md bg-white dark:bg-background/60 border border-amber-200 dark:border-amber-700 p-3">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <span className="text-xs font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wide">Option A — Go back to before the rebase started</span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mb-2">
+                                          Cancels everything and puts your branch back exactly as it was before the rebase began. Choose this if you're not sure what's happening or just want a safe exit.
+                                          <span className="ml-1 font-medium text-amber-700 dark:text-amber-400">Note: any rebase progress will be lost.</span>
+                                        </p>
+                                        <div className="relative group/cmd">
+                                          <pre className="text-xs font-mono bg-muted rounded px-3 py-2 overflow-x-auto">git rebase --abort</pre>
+                                          <button
+                                            data-testid={`button-copy-abort-${conn.id}`}
+                                            onClick={() => { navigator.clipboard.writeText("git rebase --abort"); }}
+                                            className="absolute right-2 top-1.5 opacity-0 group-hover/cmd:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                                            title="Copy command"
+                                          >
+                                            <Copy className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {/* Option B: Continue */}
+                                      <div data-testid={`rescue-option-continue-${conn.id}`} className="rounded-md bg-white dark:bg-background/60 border border-amber-200 dark:border-amber-700 p-3">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <span className="text-xs font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wide">Option B — Continue after resolving conflicts manually</span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mb-2">
+                                          If you've already opened the conflicting files and resolved them by hand, run this to tell git you're ready to move on. After it completes, push your branch again.
+                                        </p>
+                                        <div className="relative group/cmd">
+                                          <pre className="text-xs font-mono bg-muted rounded px-3 py-2 overflow-x-auto whitespace-pre-wrap">{"git add .\ngit rebase --continue"}</pre>
+                                          <button
+                                            data-testid={`button-copy-continue-${conn.id}`}
+                                            onClick={() => { navigator.clipboard.writeText("git add .\ngit rebase --continue"); }}
+                                            className="absolute right-2 top-1.5 opacity-0 group-hover/cmd:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                                            title="Copy commands"
+                                          >
+                                            <Copy className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {/* Option C: Skip */}
+                                      <div data-testid={`rescue-option-skip-${conn.id}`} className="rounded-md bg-white dark:bg-background/60 border border-amber-200 dark:border-amber-700 p-3">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <span className="text-xs font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wide">Option C — Skip the conflicting commit</span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mb-2">
+                                          Skips the specific commit that's causing the conflict and continues replaying the rest. Use this only if the conflicting commit contains changes you don't need.
+                                          <span className="ml-1 font-medium text-amber-700 dark:text-amber-400">Note: the skipped commit's changes will not appear in your branch.</span>
+                                        </p>
+                                        <div className="relative group/cmd">
+                                          <pre className="text-xs font-mono bg-muted rounded px-3 py-2 overflow-x-auto">git rebase --skip</pre>
+                                          <button
+                                            data-testid={`button-copy-skip-${conn.id}`}
+                                            onClick={() => { navigator.clipboard.writeText("git rebase --skip"); }}
+                                            className="absolute right-2 top-1.5 opacity-0 group-hover/cmd:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                                            title="Copy command"
+                                          >
+                                            <Copy className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      <p className="text-xs text-amber-600 dark:text-amber-500">
+                                        After running a command, push your branch again and click <span className="font-medium">Sync</span> here to update the status.
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
                           <div className="flex items-start justify-between gap-3">
                             <p data-testid={`text-resolution-${conn.id}`} className="text-sm text-muted-foreground">
                               Both your project and this agent made different changes at the same time. They need to be carefully combined before either can continue.
