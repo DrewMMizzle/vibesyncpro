@@ -992,6 +992,33 @@ export default function ProjectPage() {
   const [showActivity, setShowActivity] = useState(false);
   const [triageConflictInfo, setTriageConflictInfo] = useState<{ branchName: string; url: string } | null>(null);
 
+  interface ScoutResult {
+    summary: string;
+    recommendation: string;
+    changed_files: string[];
+    ahead_by: number;
+    behind_by: number;
+  }
+  const [scoutResults, setScoutResults] = useState<Record<number, ScoutResult | "error">>({});
+  const [scoutingIds, setScoutingIds] = useState<Set<number>>(new Set());
+  const [scoutFileExpanded, setScoutFileExpanded] = useState<Set<number>>(new Set());
+
+  const scoutBranch = async (branchId: number, branchName: string) => {
+    if (scoutingIds.has(branchId) || scoutResults[branchId]) return;
+    setScoutingIds((s) => new Set([...s, branchId]));
+    try {
+      const res = await apiRequest("POST", `/api/projects/${projectId}/branches/scout`, { branch_name: branchName });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Scout failed");
+      setScoutResults((prev) => ({ ...prev, [branchId]: data as ScoutResult }));
+    } catch (err) {
+      setScoutResults((prev) => ({ ...prev, [branchId]: "error" }));
+      toast({ title: "Investigation failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setScoutingIds((s) => { const n = new Set(s); n.delete(branchId); return n; });
+    }
+  };
+
   const { data: discoveredData } = useQuery<{ discovered_branches: DiscoveredBranchItem[] }>({
     queryKey: ["/api/projects", projectId, "branches", "discovered"],
     queryFn: getQueryFn({ on401: "throw" }),
@@ -2188,7 +2215,76 @@ export default function ProjectPage() {
                                 <EyeOff className="w-3 h-3" />
                                 Hide
                               </button>
+
+                              {!scoutResults[branch.id] && (
+                                <button
+                                  data-testid={`button-scout-${branch.id}`}
+                                  onClick={() => scoutBranch(branch.id, branch.branch_name)}
+                                  disabled={scoutingIds.has(branch.id)}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 border border-violet-200 dark:border-violet-800 hover:border-violet-400 dark:hover:border-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/40 transition-all disabled:opacity-50"
+                                >
+                                  <Sparkles className={`w-3 h-3 ${scoutingIds.has(branch.id) ? "animate-pulse" : ""}`} />
+                                  {scoutingIds.has(branch.id) ? "Reading branch..." : "Investigate"}
+                                </button>
+                              )}
                             </div>
+
+                            {/* Branch Scout result panel */}
+                            {scoutResults[branch.id] && scoutResults[branch.id] !== "error" && (() => {
+                              const result = scoutResults[branch.id] as ScoutResult;
+                              const isFilesExpanded = scoutFileExpanded.has(branch.id);
+                              const recText = result.recommendation;
+                              const recTag = recText.startsWith("Merge it in")
+                                ? { label: "Merge it in", color: "bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800" }
+                                : recText.startsWith("Safe to discard")
+                                  ? { label: "Safe to discard", color: "bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700" }
+                                  : { label: "Keep watching", color: "bg-yellow-50 dark:bg-yellow-950 text-yellow-700 dark:text-yellow-300 border-yellow-200 dark:border-yellow-800" };
+                              return (
+                                <div data-testid={`scout-result-${branch.id}`} className="rounded-lg border border-violet-200 dark:border-violet-800 bg-white dark:bg-zinc-900 p-4">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-1.5">
+                                      <Sparkles className="w-3.5 h-3.5 text-violet-500" />
+                                      <span className="text-xs font-medium text-violet-600 dark:text-violet-400">Branch Scout</span>
+                                    </div>
+                                    <button
+                                      onClick={() => setScoutResults((prev) => { const n = { ...prev }; delete n[branch.id]; return n; })}
+                                      className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                                      data-testid={`button-scout-close-${branch.id}`}
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                  <p data-testid={`scout-summary-${branch.id}`} className="text-sm text-foreground leading-relaxed mb-3">
+                                    {result.summary}
+                                  </p>
+                                  <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${recTag.color} mb-3`} data-testid={`scout-recommendation-${branch.id}`}>
+                                    {recTag.label === "Merge it in" && <GitMerge className="w-3 h-3" />}
+                                    {recTag.label === "Keep watching" && <Eye className="w-3 h-3" />}
+                                    {recTag.label === "Safe to discard" && <EyeOff className="w-3 h-3" />}
+                                    {recText}
+                                  </div>
+                                  {result.changed_files.length > 0 && (
+                                    <div>
+                                      <button
+                                        onClick={() => setScoutFileExpanded((s) => { const n = new Set(s); n.has(branch.id) ? n.delete(branch.id) : n.add(branch.id); return n; })}
+                                        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                                        data-testid={`button-scout-files-toggle-${branch.id}`}
+                                      >
+                                        {isFilesExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                                        {result.changed_files.length} {result.changed_files.length === 1 ? "file" : "files"} changed
+                                      </button>
+                                      {isFilesExpanded && (
+                                        <div className="mt-2 space-y-0.5" data-testid={`scout-files-${branch.id}`}>
+                                          {result.changed_files.map((f) => (
+                                            <p key={f} className="text-[11px] font-mono text-muted-foreground pl-4 truncate">{f}</p>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
 
                             <div className="flex flex-col gap-0.5" data-testid={`button-descriptions-${branch.id}`}>
                               <p className="text-[11px] text-muted-foreground/60">

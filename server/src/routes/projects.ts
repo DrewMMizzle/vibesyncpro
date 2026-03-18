@@ -1010,6 +1010,163 @@ router.get("/:id/branches/discovered", requireAuth, async (req, res) => {
   return res.json({ discovered_branches: allDiscovered.filter((b) => !b.dismissed_at).map(formatDiscoveredBranch) });
 });
 
+// POST /api/projects/:id/branches/scout — use Gemini to investigate an untracked branch
+router.post("/:id/branches/scout", requireAuth, async (req, res) => {
+  const projectId = parseInt(req.params.id as string, 10);
+  if (isNaN(projectId)) return res.status(400).json({ message: "Invalid project ID" });
+
+  const { branch_name } = req.body as { branch_name?: string };
+  if (!branch_name || typeof branch_name !== "string") {
+    return res.status(400).json({ message: "Missing required field: branch_name" });
+  }
+
+  const project = await storage.getProjectById(projectId);
+  if (!project) return res.status(404).json({ message: "Project not found" });
+  if (project.user_id !== req.session.userId) return res.status(403).json({ message: "Forbidden" });
+
+  if (!project.github_repo_name?.includes("/")) {
+    return res.status(400).json({ message: "No GitHub repo linked to this project" });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return res.status(503).json({ message: "Gemini API key not configured" });
+
+  let token: string;
+  try {
+    token = await getAccessToken(req.session.userId!);
+  } catch (err) {
+    if (err instanceof NoGitHubTokenError) {
+      return res.status(401).json({ code: "github_token_missing", message: err.message });
+    }
+    return res.status(401).json({ code: "github_token_missing", message: "GitHub access token not found. Please sign in again." });
+  }
+
+  const [owner, repo] = project.github_repo_name.split("/");
+
+  let defaultBranch: string;
+  try {
+    const repoInfo = await githubFetch(token, `/repos/${owner}/${repo}`) as { default_branch: string };
+    defaultBranch = repoInfo.default_branch;
+  } catch (err) {
+    if (err instanceof GitHubTokenRevokedError) {
+      return res.status(401).json({ code: "github_token_revoked", message: (err as Error).message });
+    }
+    return res.status(502).json({ message: "Failed to fetch repository info from GitHub" });
+  }
+
+  // Fetch commits on this branch that aren't on the default branch (up to 20)
+  type GitHubCommitItem = { sha: string; commit: { message: string; author: { name: string; date: string } | null } };
+  type GitHubCompareResult = {
+    ahead_by: number;
+    behind_by: number;
+    commits: GitHubCommitItem[];
+    files?: Array<{ filename: string; status: string; patch?: string; additions: number; deletions: number }>;
+  };
+
+  let comparison: GitHubCompareResult;
+  try {
+    comparison = await githubFetch(
+      token,
+      `/repos/${owner}/${repo}/compare/${encodeURIComponent(defaultBranch)}...${encodeURIComponent(branch_name)}`
+    ) as GitHubCompareResult;
+  } catch (err) {
+    if (err instanceof GitHubRateLimitError) {
+      return res.status(429).json({ message: (err as Error).message });
+    }
+    if ((err as { statusCode?: number }).statusCode === 404) {
+      return res.status(404).json({ message: `Branch '${branch_name}' was not found in this repository.` });
+    }
+    return res.status(502).json({ message: "Failed to compare branches on GitHub" });
+  }
+
+  const commits = (comparison.commits ?? []).slice(0, 20);
+  const changedFiles = (comparison.files ?? []).slice(0, 8);
+  const changedFileNames = (comparison.files ?? []).map((f) => f.filename);
+
+  // Build commit summary
+  const commitSummary = commits.length === 0
+    ? "No unique commits on this branch."
+    : commits.map((c) => {
+        const firstLine = c.commit.message.split("\n")[0].trim();
+        return `- ${firstLine}`;
+      }).join("\n");
+
+  // Build diff excerpts for up to 8 files
+  const diffExcerpts = changedFiles.map((f) => {
+    const patch = f.patch ? f.patch.slice(0, 2000) : "(binary or no diff available)";
+    return `### ${f.filename} (${f.status}, +${f.additions}/-${f.deletions})\n${patch}`;
+  }).join("\n\n");
+
+  const prompt = `You are an AI assistant helping a developer understand what work an AI coding agent did on a GitHub branch. Analyze the following branch information and provide a plain-language summary.
+
+Repository: ${project.github_repo_name}
+Branch being investigated: ${branch_name}
+Main branch: ${defaultBranch}
+Commits ahead of main: ${comparison.ahead_by}
+Commits behind main: ${comparison.behind_by}
+Files changed: ${changedFileNames.length}
+
+## Commit messages on this branch:
+${commitSummary}
+
+## File changes and diffs:
+${diffExcerpts || "No file changes found — the branch may be up to date with main."}
+
+Based on the above, respond in EXACTLY this format with no preamble:
+
+SUMMARY:
+<2-4 sentences in plain language explaining what this branch contains and what the AI agent was working on. Be specific about features, fixes, or refactors. Avoid technical jargon.>
+
+RECOMMENDATION:
+<One of: "Merge it in", "Keep watching", or "Safe to discard"> — <1-2 sentences explaining why.>`;
+
+  try {
+    const geminiRes = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 1024 },
+        }),
+        signal: AbortSignal.timeout(30_000),
+      }
+    );
+
+    if (!geminiRes.ok) {
+      const errBody = await geminiRes.text();
+      console.error("Gemini Branch Scout API error:", geminiRes.status, errBody.slice(0, 300));
+      return res.status(502).json({ message: "Gemini API returned an error. Please try again." });
+    }
+
+    const data = await geminiRes.json() as {
+      candidates?: { content?: { parts?: { text?: string }[] } }[];
+    };
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+
+    const summaryMatch = text.match(/SUMMARY:\n([\s\S]*?)(?=\nRECOMMENDATION:|$)/);
+    const recommendationMatch = text.match(/RECOMMENDATION:\n([\s\S]*?)$/);
+
+    const summary = summaryMatch ? summaryMatch[1].trim() : text.trim();
+    const recommendation = recommendationMatch ? recommendationMatch[1].trim() : "Review the changes and decide if you want to merge them.";
+
+    return res.json({
+      summary,
+      recommendation,
+      changed_files: changedFileNames,
+      ahead_by: comparison.ahead_by,
+      behind_by: comparison.behind_by,
+    });
+  } catch (err) {
+    if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
+      return res.status(504).json({ message: "Gemini took too long to respond. Please try again." });
+    }
+    console.error("Branch Scout Gemini request failed:", err instanceof Error ? err.message : "unknown");
+    return res.status(502).json({ message: "Could not reach Gemini. Please try again." });
+  }
+});
+
 // POST /api/projects/:id/branches/:branchName/triage — take action on a discovered branch
 router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) => {
   const projectId = parseInt(req.params.id as string, 10);
