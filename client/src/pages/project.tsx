@@ -97,6 +97,12 @@ const PLATFORM_ICONS: Record<Platform, React.ReactNode> = {
   computer: <Monitor className="w-5 h-5" />,
 };
 
+const PLATFORM_ACCENT_COLORS: Record<Platform, string> = {
+  replit: "border-l-orange-400",
+  claude_code: "border-l-violet-400",
+  computer: "border-l-zinc-400",
+};
+
 const PLATFORM_HOME_URLS: Record<Platform, string | null> = {
   replit: "https://replit.com",
   claude_code: "https://claude.ai",
@@ -1189,7 +1195,7 @@ export default function ProjectPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b border-border px-6 sm:px-8 py-4 flex items-center justify-between">
+      <header className="border-b border-border px-6 sm:px-8 py-4 flex items-center">
         <button
           data-testid="button-back"
           onClick={() => navigate("/dashboard")}
@@ -1198,12 +1204,9 @@ export default function ProjectPage() {
           <ArrowLeft className="w-4 h-4" />
           Dashboard
         </button>
-        <span className="text-sm font-medium tracking-wide text-muted-foreground/50 select-none">
-          VibeSyncPro
-        </span>
       </header>
 
-      <main className="max-w-3xl mx-auto px-6 sm:px-8 py-12">
+      <main className="max-w-4xl mx-auto px-6 sm:px-8 py-12">
         <AnimatePresence>
           {launchBanner && project && (
             <motion.div
@@ -1345,15 +1348,25 @@ export default function ProjectPage() {
             </div>
           ) : (
             <div className="group flex items-center gap-2 mt-2">
-              <p data-testid="text-project-description" className="text-muted-foreground">
-                {project.description || "No description"}
+              <p data-testid="text-project-status-summary" className="text-muted-foreground text-sm">
+                {(() => {
+                  const connections = project.platform_connections;
+                  if (connections.length === 0) return "No agents connected yet";
+                  const mostRecent = connections
+                    .filter((c) => c.last_synced_at)
+                    .sort((a, b) => new Date(b.last_synced_at!).getTime() - new Date(a.last_synced_at!).getTime())[0];
+                  const syncPart = mostRecent ? `Last synced ${timeAgo(mostRecent.last_synced_at)}` : "Never synced";
+                  const agentPart = `${connections.length} ${connections.length === 1 ? "agent" : "agents"} connected`;
+                  return `${syncPart} · ${agentPart}`;
+                })()}
               </p>
               <button
                 data-testid="button-edit-description"
                 onClick={() => { setEditDesc(project.description ?? ""); setEditingDesc(true); }}
-                className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity"
+                className="opacity-0 group-hover:opacity-100 text-muted-foreground/50 hover:text-foreground transition-opacity"
+                title={project.description ? "Edit description" : "Add description"}
               >
-                <Pencil className="w-4 h-4" />
+                <Pencil className="w-3.5 h-3.5" />
               </button>
             </div>
           )}
@@ -1361,7 +1374,7 @@ export default function ProjectPage() {
 
         {/* GitHub Repo Section */}
         <div className="mb-10">
-          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-4">
+          <h2 className="text-[15px] font-medium text-foreground mb-4">
             GitHub Repository
           </h2>
           {project.github_repo_name ? (
@@ -1453,7 +1466,7 @@ export default function ProjectPage() {
 
         {/* Platform Connections Section */}
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+          <h2 className="text-[15px] font-medium text-foreground">
             AI Agents
           </h2>
           <div className="flex items-center gap-2">
@@ -1462,9 +1475,9 @@ export default function ProjectPage() {
                 data-testid="button-sync"
                 onClick={() => syncStatus.mutate()}
                 disabled={syncStatus.isPending}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm text-muted-foreground hover:text-foreground border border-border hover:border-foreground/30 transition-all disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-foreground border border-foreground/30 hover:border-foreground hover:bg-foreground/5 transition-all disabled:opacity-50 group"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${syncStatus.isPending ? "animate-spin" : ""}`} />
+                <RefreshCw className={`w-3.5 h-3.5 ${syncStatus.isPending ? "animate-spin" : "group-hover:animate-spin"}`} />
                 {syncStatus.isPending ? "Checking..." : "Check for updates"}
               </button>
             )}
@@ -1514,7 +1527,7 @@ export default function ProjectPage() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, x: -20 }}
                   data-testid={`card-connection-${conn.id}`}
-                  className="border border-border rounded-lg p-5"
+                  className={`border border-border rounded-lg p-5 border-l-[3px] ${PLATFORM_ACCENT_COLORS[conn.platform]} group`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -1569,11 +1582,11 @@ export default function ProjectPage() {
                               setEditingBranchConnId(conn.id);
                               setEditBranchValue(conn.branch_name ?? "");
                             }}
-                            className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1 hover:text-foreground transition-colors group"
+                            className="text-sm font-medium text-foreground mt-0.5 flex items-center gap-1 hover:text-foreground/70 transition-colors group/branch"
                           >
                             <GitBranch className="w-3 h-3" />
                             {conn.branch_name}
-                            <Pencil className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            <Pencil className="w-2.5 h-2.5 opacity-0 group-hover/branch:opacity-100 transition-opacity" />
                           </button>
                         ) : (
                           <button
@@ -1681,7 +1694,7 @@ export default function ProjectPage() {
                               </a>
                               <button
                                 onClick={() => { setEditingUrlConnId(conn.id); setEditUrlValue(""); }}
-                                className="text-[10px] text-muted-foreground/40 hover:text-foreground flex items-center gap-0.5 transition-colors"
+                                className="text-[10px] text-muted-foreground/50 hover:text-foreground flex items-center gap-0.5 transition-colors border border-border rounded px-2 py-0.5 hover:border-foreground/30"
                                 title={`Pin your ${PLATFORM_LABELS[conn.platform]} project URL`}
                                 data-testid={`button-add-url-${conn.id}`}
                               >
@@ -1695,7 +1708,7 @@ export default function ProjectPage() {
                     </div>
 
                     <div className="flex items-center gap-3">
-                      <div className="text-right">
+                      <div className="flex items-center gap-2">
                         <span
                           data-testid={`badge-status-${conn.id}`}
                           className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${STATUS_STYLES[conn.status]}`}
@@ -1703,7 +1716,7 @@ export default function ProjectPage() {
                           {STATUS_LABELS[conn.status]}
                         </span>
                         {conn.last_synced_at && (
-                          <p data-testid={`text-synced-at-${conn.id}`} className="text-[10px] text-muted-foreground/60 mt-1">
+                          <p data-testid={`text-synced-at-${conn.id}`} className="text-[10px] text-muted-foreground/60">
                             {timeAgo(conn.last_synced_at)}
                           </p>
                         )}
@@ -1720,7 +1733,7 @@ export default function ProjectPage() {
                         }}
                         disabled={deleteConnection.isPending}
                         title="Remove this connection"
-                        className="text-muted-foreground/40 hover:text-red-500 transition-colors"
+                        className="text-muted-foreground/40 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -1917,7 +1930,7 @@ export default function ProjectPage() {
               <button
                 data-testid="button-toggle-discovered"
                 onClick={() => setShowDiscovered(!showDiscovered)}
-                className="flex items-center gap-2 text-sm font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+                className="flex items-center gap-2 text-[15px] font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
                 {showDiscovered ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                 Other Branches Found
@@ -2083,82 +2096,114 @@ export default function ProjectPage() {
         )}
         {/* Activity Log */}
         <div className="mt-10">
-          <button
-            data-testid="button-toggle-activity"
-            onClick={() => setShowActivity(!showActivity)}
-            className="flex items-center gap-2 text-sm font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors mb-4"
-          >
-            {showActivity ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-            <Activity className="w-4 h-4" />
-            Activity
+          <div className="flex items-center gap-2 mb-4">
+            <Activity className="w-4 h-4 text-muted-foreground" />
+            <h2 className="text-[15px] font-medium text-foreground">Activity</h2>
             {activityEntries.length > 0 && (
               <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground">
                 {activityEntries.length}
               </span>
             )}
-          </button>
+          </div>
 
-          <AnimatePresence>
-            {showActivity && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden"
-              >
-                {activityEntries.length === 0 ? (
-                  <div className="text-center py-8 border border-dashed border-border rounded-lg">
-                    <Activity className="w-6 h-6 mx-auto text-muted-foreground/40 mb-2" />
-                    <p data-testid="text-no-activity" className="text-muted-foreground text-sm">
-                      No activity yet. Events will appear here as you sync, merge, and manage branches.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="border border-border rounded-lg divide-y divide-border">
-                    {activityEntries.map((entry) => {
-                      const icon = getActivityIcon(entry.event_type);
-                      const color = getActivityColor(entry.event_type);
-                      return (
-                        <div
-                          key={entry.id}
-                          data-testid={`activity-entry-${entry.id}`}
-                          className="px-4 py-3 flex items-start gap-3"
-                        >
-                          <span className={`mt-0.5 flex-shrink-0 ${color}`}>
-                            {icon}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <p data-testid={`activity-desc-${entry.id}`} className="text-sm text-foreground">
-                              {entry.description}
+          {activityEntries.length === 0 ? (
+            <div className="text-center py-8 border border-dashed border-border rounded-lg">
+              <Activity className="w-6 h-6 mx-auto text-muted-foreground/40 mb-2" />
+              <p data-testid="text-no-activity" className="text-muted-foreground text-sm">
+                No activity yet. Events will appear here as you sync, merge, and manage branches.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="border border-border rounded-lg divide-y divide-border">
+                {activityEntries.slice(0, 3).map((entry) => {
+                  const icon = getActivityIcon(entry.event_type);
+                  const color = getActivityColor(entry.event_type);
+                  return (
+                    <div
+                      key={entry.id}
+                      data-testid={`activity-entry-${entry.id}`}
+                      className="px-4 py-3 flex items-start gap-3"
+                    >
+                      <span className={`mt-0.5 flex-shrink-0 ${color}`}>
+                        {icon}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p data-testid={`activity-desc-${entry.id}`} className="text-sm text-foreground">
+                          {entry.description}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p data-testid={`activity-time-${entry.id}`} className="text-[10px] text-muted-foreground">
+                            {timeAgo(entry.created_at)}
+                          </p>
+                          {typeof entry.metadata === "object" && entry.metadata !== null && !!(entry.metadata as Record<string, unknown>).branch && (
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                              <GitBranch className="w-2.5 h-2.5" />
+                              {String((entry.metadata as Record<string, unknown>).branch)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <AnimatePresence>
+                  {showActivity && activityEntries.slice(3).map((entry) => {
+                    const icon = getActivityIcon(entry.event_type);
+                    const color = getActivityColor(entry.event_type);
+                    return (
+                      <motion.div
+                        key={entry.id}
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        data-testid={`activity-entry-${entry.id}`}
+                        className="px-4 py-3 flex items-start gap-3 overflow-hidden"
+                      >
+                        <span className={`mt-0.5 flex-shrink-0 ${color}`}>
+                          {icon}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p data-testid={`activity-desc-${entry.id}`} className="text-sm text-foreground">
+                            {entry.description}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <p data-testid={`activity-time-${entry.id}`} className="text-[10px] text-muted-foreground">
+                              {timeAgo(entry.created_at)}
                             </p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <p data-testid={`activity-time-${entry.id}`} className="text-[10px] text-muted-foreground">
-                                {timeAgo(entry.created_at)}
-                              </p>
-                              {typeof entry.metadata === "object" && entry.metadata !== null && !!(entry.metadata as Record<string, unknown>).branch && (
-                                <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                                  <GitBranch className="w-2.5 h-2.5" />
-                                  {String((entry.metadata as Record<string, unknown>).branch)}
-                                </span>
-                              )}
-                            </div>
+                            {typeof entry.metadata === "object" && entry.metadata !== null && !!(entry.metadata as Record<string, unknown>).branch && (
+                              <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                                <GitBranch className="w-2.5 h-2.5" />
+                                {String((entry.metadata as Record<string, unknown>).branch)}
+                              </span>
+                            )}
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
+              {activityEntries.length > 3 && (
+                <button
+                  data-testid="button-toggle-activity"
+                  onClick={() => setShowActivity(!showActivity)}
+                  className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showActivity ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  {showActivity ? "Show less" : `Show all ${activityEntries.length} events`}
+                </button>
+              )}
+            </>
+          )}
         </div>
 
         {/* Danger Zone */}
-        <div className="mt-16 pt-8 border-t border-red-200 dark:border-red-900">
-          <h2 className="text-sm font-medium text-red-600 dark:text-red-400 uppercase tracking-wider mb-4">
-            Danger Zone
+        <div className="mt-16 pt-8 border-t border-border">
+          <h2 className="text-sm font-medium text-foreground/50 mb-4">
+            Danger zone
           </h2>
-          <div className="border border-red-200 dark:border-red-900 rounded-lg p-5 flex items-center justify-between">
+          <div className="border border-border border-l-[3px] border-l-red-400 rounded-lg p-5 flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-foreground">Delete this project</p>
               <p className="text-xs text-muted-foreground mt-0.5">
