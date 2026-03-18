@@ -6,10 +6,34 @@ import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 
 function ProductVisual() {
-  const rows = [
-    { Icon: Globe, label: "Replit", branch: "agent/main", status: "Up to date", dotOpacity: "opacity-100" },
-    { Icon: Bot, label: "Claude Code", branch: "claude/feature-auth", status: "Out of sync", dotOpacity: "opacity-40" },
-    { Icon: Monitor, label: "Computer", branch: "computer/refactor", status: "Needs attention", dotOpacity: "opacity-15" },
+  const rows: Array<{
+    Icon: React.ComponentType<{ className?: string }>;
+    label: string;
+    branch: string;
+    status: string;
+    pillClass: string;
+  }> = [
+    {
+      Icon: Globe,
+      label: "Replit",
+      branch: "agent/main",
+      status: "Up to date",
+      pillClass: "bg-foreground text-background",
+    },
+    {
+      Icon: Bot,
+      label: "Claude Code",
+      branch: "claude/feature-auth",
+      status: "Out of sync",
+      pillClass: "bg-foreground/10 text-foreground/70",
+    },
+    {
+      Icon: Monitor,
+      label: "Computer",
+      branch: "computer/refactor",
+      status: "Needs attention",
+      pillClass: "border border-foreground/20 text-foreground/50",
+    },
   ];
 
   return (
@@ -20,15 +44,22 @@ function ProductVisual() {
           <div className="w-2.5 h-2.5 rounded-full bg-foreground/10" />
           <div className="w-2.5 h-2.5 rounded-full bg-foreground/10" />
         </div>
-        <span className="text-[11px] text-muted-foreground/50 tracking-wide ml-1 select-none">VibeSyncPro — my-saas-app</span>
+        <span className="text-[11px] text-muted-foreground/50 tracking-wide ml-1 select-none">
+          VibeSyncPro — my-saas-app
+        </span>
       </div>
       <div className="p-5">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-[10px] font-medium text-foreground/35 uppercase tracking-[0.12em] select-none">AI Agents</p>
+          <p className="text-[10px] font-medium text-foreground/35 uppercase tracking-[0.12em] select-none">
+            AI Agents
+          </p>
           <span className="text-[10px] text-muted-foreground/40 select-none">Synced 2 min ago</span>
         </div>
-        {rows.map(({ Icon, label, branch, status, dotOpacity }) => (
-          <div key={label} className="flex items-center justify-between py-3 border-b border-border/50 last:border-0">
+        {rows.map(({ Icon, label, branch, status, pillClass }) => (
+          <div
+            key={label}
+            className="flex items-center justify-between py-3 border-b border-border/50 last:border-0"
+          >
             <div className="flex items-center gap-3">
               <span className="text-muted-foreground/50">
                 <Icon className="w-4 h-4" />
@@ -41,10 +72,11 @@ function ProductVisual() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className={`inline-block w-1.5 h-1.5 rounded-full bg-foreground ${dotOpacity}`} />
-              <span className="text-xs text-muted-foreground">{status}</span>
-            </div>
+            <span
+              className={`text-[11px] px-2.5 py-0.5 rounded-full font-medium whitespace-nowrap ${pillClass}`}
+            >
+              {status}
+            </span>
           </div>
         ))}
       </div>
@@ -69,13 +101,37 @@ export default function Home() {
 
   if (isLoading || isLoggedIn) return null;
 
+  const features = [
+    {
+      Icon: GitBranch,
+      title: "Drift detection",
+      desc: "Know the moment a branch falls behind.",
+      stat: "Catches drift in under 30 seconds",
+      testId: "card-feature-drift",
+    },
+    {
+      Icon: Merge,
+      title: "Conflict resolution",
+      desc: "Merge or update branches without leaving the dashboard.",
+      stat: "Fix conflicts in one click",
+      testId: "card-feature-conflict",
+    },
+    {
+      Icon: Search,
+      title: "Ghost branch cleanup",
+      desc: "Automatically surface unregistered branches created by AI tools.",
+      stat: "Zero branches left behind",
+      testId: "card-feature-ghost",
+    },
+  ];
+
   return (
-    <div className="min-h-screen flex flex-col bg-[#F9F8F6] dark:bg-[#111110]">
+    <div className="min-h-screen flex flex-col bg-[#F9F8F6] dark:bg-[#141412]">
       {/* Nav */}
       <nav
         className={`sticky top-0 z-50 flex items-center justify-between px-6 sm:px-10 py-5 transition-all duration-300 ${
           scrolled
-            ? "backdrop-blur-md bg-[#F9F8F6]/80 dark:bg-[#111110]/80 border-b border-border"
+            ? "backdrop-blur-md bg-[#F9F8F6]/80 dark:bg-[#141412]/80 border-b border-border"
             : ""
         }`}
       >
@@ -190,40 +246,21 @@ export default function Home() {
           transition={{ delay: 0.3, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
           className="mt-16 mb-16 w-full max-w-3xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-4"
         >
-          {[
-            {
-              Icon: GitBranch,
-              title: "Drift detection",
-              desc: "Know the moment a branch falls behind.",
-              stat: "Catches drift in under 30 seconds",
-              testId: "card-feature-drift",
-            },
-            {
-              Icon: Merge,
-              title: "Conflict resolution",
-              desc: "Merge or update branches without leaving the dashboard.",
-              stat: "Fix conflicts in one click",
-              testId: "card-feature-conflict",
-            },
-            {
-              Icon: Search,
-              title: "Ghost branch cleanup",
-              desc: "Automatically surface unregistered branches created by AI tools.",
-              stat: "Zero branches left behind",
-              testId: "card-feature-ghost",
-            },
-          ].map(({ Icon, title, desc, stat, testId }) => (
+          {features.map(({ Icon, title, desc, stat, testId }) => (
+            /* Gradient border wrapper — transparent by default, subtle gradient on hover */
             <div
               key={testId}
+              className="p-px rounded-xl bg-gradient-to-br from-border/0 to-border/0 hover:from-foreground/20 hover:to-foreground/5 transition-all duration-300 group"
               data-testid={testId}
-              className="group rounded-xl border border-border p-6 bg-white dark:bg-[#0D0D0D] shadow-sm hover:shadow-md hover:border-foreground/20 transition-all duration-300"
             >
-              <div className="w-11 h-11 rounded-full bg-foreground/5 group-hover:bg-foreground/[0.07] flex items-center justify-center mb-4 transition-colors duration-300">
-                <Icon className="w-5 h-5 text-foreground/60" />
+              <div className="rounded-[11px] p-6 bg-white/90 dark:bg-[#0D0D0D]/90 backdrop-blur-sm shadow-sm group-hover:shadow-md transition-all duration-300 h-full">
+                <div className="w-11 h-11 rounded-full bg-foreground/5 group-hover:bg-foreground/[0.08] flex items-center justify-center mb-4 transition-colors duration-300">
+                  <Icon className="w-6 h-6 text-foreground/60" />
+                </div>
+                <h3 className="font-medium text-foreground text-sm">{title}</h3>
+                <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">{desc}</p>
+                <p className="mt-3 text-[11px] text-muted-foreground/45 font-medium">{stat}</p>
               </div>
-              <h3 className="font-medium text-foreground text-sm">{title}</h3>
-              <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">{desc}</p>
-              <p className="mt-3 text-[11px] text-muted-foreground/45 font-medium">{stat}</p>
             </div>
           ))}
         </motion.div>
