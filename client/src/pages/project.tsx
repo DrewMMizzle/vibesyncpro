@@ -999,12 +999,13 @@ export default function ProjectPage() {
     ahead_by: number;
     behind_by: number;
   }
-  const [scoutResults, setScoutResults] = useState<Record<number, ScoutResult | "error">>({});
+  const [scoutResults, setScoutResults] = useState<Record<number, ScoutResult | string>>({});
   const [scoutingIds, setScoutingIds] = useState<Set<number>>(new Set());
   const [scoutFileExpanded, setScoutFileExpanded] = useState<Set<number>>(new Set());
 
   const scoutBranch = async (branchId: number, branchName: string) => {
-    if (scoutingIds.has(branchId) || scoutResults[branchId]) return;
+    if (scoutingIds.has(branchId) || (scoutResults[branchId] && typeof scoutResults[branchId] !== "string")) return;
+    setScoutResults((prev) => { const n = { ...prev }; delete n[branchId]; return n; });
     setScoutingIds((s) => new Set([...s, branchId]));
     try {
       const res = await apiRequest("POST", `/api/projects/${projectId}/branches/scout`, { branch_name: branchName });
@@ -1012,8 +1013,7 @@ export default function ProjectPage() {
       if (!res.ok) throw new Error(data.message || "Scout failed");
       setScoutResults((prev) => ({ ...prev, [branchId]: data as ScoutResult }));
     } catch (err) {
-      setScoutResults((prev) => ({ ...prev, [branchId]: "error" }));
-      toast({ title: "Investigation failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+      setScoutResults((prev) => ({ ...prev, [branchId]: err instanceof Error ? err.message : "Investigation failed" }));
     } finally {
       setScoutingIds((s) => { const n = new Set(s); n.delete(branchId); return n; });
     }
@@ -2216,7 +2216,7 @@ export default function ProjectPage() {
                                 Hide
                               </button>
 
-                              {!scoutResults[branch.id] && (
+                              {(typeof scoutResults[branch.id] !== "object" || !scoutResults[branch.id]) && (
                                 <button
                                   data-testid={`button-scout-${branch.id}`}
                                   onClick={() => scoutBranch(branch.id, branch.branch_name)}
@@ -2224,13 +2224,31 @@ export default function ProjectPage() {
                                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 border border-violet-200 dark:border-violet-800 hover:border-violet-400 dark:hover:border-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/40 transition-all disabled:opacity-50"
                                 >
                                   <Sparkles className={`w-3 h-3 ${scoutingIds.has(branch.id) ? "animate-pulse" : ""}`} />
-                                  {scoutingIds.has(branch.id) ? "Reading branch..." : "Investigate"}
+                                  {scoutingIds.has(branch.id) ? "Reading branch with Gemini..." : typeof scoutResults[branch.id] === "string" ? "Try again" : "Investigate"}
                                 </button>
                               )}
                             </div>
 
+                            {/* Branch Scout inline error panel */}
+                            {typeof scoutResults[branch.id] === "string" && scoutResults[branch.id] && (
+                              <div data-testid={`scout-error-${branch.id}`} className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 p-3 flex items-start gap-2">
+                                <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-medium text-red-700 dark:text-red-300">Investigation failed</p>
+                                  <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">{scoutResults[branch.id] as string}</p>
+                                </div>
+                                <button
+                                  onClick={() => setScoutResults((prev) => { const n = { ...prev }; delete n[branch.id]; return n; })}
+                                  className="text-red-400 hover:text-red-600 dark:hover:text-red-300 transition-colors flex-shrink-0"
+                                  data-testid={`button-scout-error-dismiss-${branch.id}`}
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+
                             {/* Branch Scout result panel */}
-                            {scoutResults[branch.id] && scoutResults[branch.id] !== "error" && (() => {
+                            {scoutResults[branch.id] && typeof scoutResults[branch.id] === "object" && (() => {
                               const result = scoutResults[branch.id] as ScoutResult;
                               const isFilesExpanded = scoutFileExpanded.has(branch.id);
                               const recText = result.recommendation;
