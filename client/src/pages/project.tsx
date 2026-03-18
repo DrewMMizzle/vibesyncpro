@@ -989,9 +989,7 @@ export default function ProjectPage() {
     },
   });
 
-  const [showDiscovered, setShowDiscovered] = useState(false);
   const [showActivity, setShowActivity] = useState(false);
-  const [hasAutoExpanded, setHasAutoExpanded] = useState(false);
   const [triageConflictInfo, setTriageConflictInfo] = useState<{ branchName: string; url: string } | null>(null);
 
   const { data: discoveredData } = useQuery<{ discovered_branches: DiscoveredBranchItem[] }>({
@@ -1009,13 +1007,6 @@ export default function ProjectPage() {
   });
 
   const activityEntries = activityData?.activity ?? [];
-
-  useEffect(() => {
-    if (discoveredBranches.length > 0 && !hasAutoExpanded) {
-      setShowDiscovered(true);
-      setHasAutoExpanded(true);
-    }
-  }, [discoveredBranches.length, hasAutoExpanded]);
 
   // Auto-sync when user returns to this tab (e.g. after doing things on GitHub)
   useEffect(() => {
@@ -2056,19 +2047,16 @@ export default function ProjectPage() {
         {project.github_repo_name && (
           <div className="mt-10">
             <div className="flex items-start justify-between mb-1">
-              <button
-                data-testid="button-toggle-discovered"
-                onClick={() => setShowDiscovered(!showDiscovered)}
-                className="flex items-center gap-2 text-[15px] font-medium text-foreground hover:text-foreground/70 transition-colors"
-              >
-                {showDiscovered ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                Untracked Branches
-                {discoveredBranches.length > 0 && (
-                  <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300">
-                    {discoveredBranches.length}
-                  </span>
-                )}
-              </button>
+              <div>
+                <h2 className="text-[15px] font-medium text-foreground flex items-center gap-2">
+                  Untracked Branches
+                  {discoveredBranches.length > 0 && (
+                    <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300">
+                      {discoveredBranches.length}
+                    </span>
+                  )}
+                </h2>
+              </div>
               <button
                 data-testid="button-scan-branches"
                 onClick={() => scanBranches.mutate()}
@@ -2079,26 +2067,19 @@ export default function ProjectPage() {
                 {scanBranches.isPending ? "Scanning..." : "Look for branches"}
               </button>
             </div>
-            <p className="text-sm text-muted-foreground mb-4 ml-6">
+            <p className="text-sm text-muted-foreground mb-4">
               Branches on GitHub that aren't connected to any agent yet — they may contain work from your AI tools.
             </p>
 
-            <AnimatePresence>
-              {showDiscovered && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="space-y-3 overflow-hidden"
-                >
-                  {discoveredBranches.length === 0 ? (
-                    <div className="text-center py-8 border border-dashed border-border rounded-lg">
-                      <FolderGit2 className="w-6 h-6 mx-auto text-muted-foreground/40 mb-2" />
-                      <p data-testid="text-no-discovered" className="text-muted-foreground text-sm">
-                        No other branches found. Click "Look for branches" to check.
-                      </p>
-                    </div>
-                  ) : (
+            <div className="space-y-3">
+              {discoveredBranches.length === 0 ? (
+                <div className="text-center py-8 border border-dashed border-border rounded-lg">
+                  <FolderGit2 className="w-6 h-6 mx-auto text-muted-foreground/40 mb-2" />
+                  <p data-testid="text-no-discovered" className="text-muted-foreground text-sm">
+                    No untracked branches found. Click "Look for branches" to scan GitHub.
+                  </p>
+                </div>
+              ) : (
                     discoveredBranches.map((branch) => {
                       const platformLabel = branch.likely_platform
                         ? PLATFORM_LABELS[branch.likely_platform as Platform] ?? branch.likely_platform
@@ -2250,9 +2231,7 @@ export default function ProjectPage() {
                       );
                     })
                   )}
-                </motion.div>
-              )}
-            </AnimatePresence>
+            </div>
           </div>
         )}
         {/* Activity Log */}
