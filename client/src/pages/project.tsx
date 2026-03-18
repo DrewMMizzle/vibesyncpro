@@ -2055,14 +2055,14 @@ export default function ProjectPage() {
         {/* Discovered Branches Section */}
         {project.github_repo_name && (
           <div className="mt-10">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-start justify-between mb-1">
               <button
                 data-testid="button-toggle-discovered"
                 onClick={() => setShowDiscovered(!showDiscovered)}
-                className="flex items-center gap-2 text-[15px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+                className="flex items-center gap-2 text-[15px] font-medium text-foreground hover:text-foreground/70 transition-colors"
               >
                 {showDiscovered ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                Other Branches Found
+                Untracked Branches
                 {discoveredBranches.length > 0 && (
                   <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300">
                     {discoveredBranches.length}
@@ -2079,6 +2079,9 @@ export default function ProjectPage() {
                 {scanBranches.isPending ? "Scanning..." : "Look for branches"}
               </button>
             </div>
+            <p className="text-sm text-muted-foreground mb-4 ml-6">
+              Branches on GitHub that aren't connected to any agent yet — they may contain work from your AI tools.
+            </p>
 
             <AnimatePresence>
               {showDiscovered && (
@@ -2106,6 +2109,23 @@ export default function ProjectPage() {
                         : null;
                       const isTriaging = triageBranch.isPending;
 
+                      const situationGuidance = (() => {
+                        if (branch.likely_platform) {
+                          const label = PLATFORM_LABELS[branch.likely_platform as Platform] ?? branch.likely_platform;
+                          return `This looks like a ${label} branch. Add it so VibeSyncPro can keep it in sync.`;
+                        }
+                        if (branch.ahead_by_default > 0 && branch.behind_by_default === 0) {
+                          return `This branch has ${branch.ahead_by_default} ${branch.ahead_by_default === 1 ? "change" : "changes"} your main project doesn't have yet. Add it to start tracking, then merge when ready.`;
+                        }
+                        if (branch.behind_by_default > 0 && branch.ahead_by_default === 0) {
+                          return "Your project has updates this branch hasn't received. Add it and send it the latest changes.";
+                        }
+                        if (branch.ahead_by_default > 0 && branch.behind_by_default > 0) {
+                          return `This branch has ${branch.ahead_by_default} ${branch.ahead_by_default === 1 ? "change" : "changes"} your project doesn't have, and is also behind by ${branch.behind_by_default}. Add it to start tracking.`;
+                        }
+                        return "This branch is up to date with your project. Link it to watch for future changes, or hide it if it's no longer active.";
+                      })();
+
                       return (
                         <motion.div
                           key={branch.id}
@@ -2128,68 +2148,80 @@ export default function ProjectPage() {
                                 {branch.likely_platform
                                   ? `Looks like it came from your ${PLATFORM_LABELS[branch.likely_platform as Platform] ?? branch.likely_platform} agent`
                                   : "Not linked to any of your agents"}
+                                {branch.last_commit_at && (
+                                  <span data-testid={`text-discovered-lastcommit-${branch.id}`} className="ml-2 text-muted-foreground/60">
+                                    · Last activity {timeAgo(branch.last_commit_at)}
+                                  </span>
+                                )}
                               </p>
 
-                              <p data-testid={`text-discovered-commits-${branch.id}`} className="text-sm text-muted-foreground mt-2 ml-6">
-                                {branch.ahead_by_default > 0
-                                  ? `${branch.ahead_by_default} new ${branch.ahead_by_default === 1 ? "change" : "changes"} not yet in your project`
-                                  : "No new changes for your project"}
-                                {branch.behind_by_default > 0 && ` · ${branch.behind_by_default} ${branch.behind_by_default === 1 ? "update" : "updates"} behind your project`}
+                              <p data-testid={`text-discovered-guidance-${branch.id}`} className="text-sm text-foreground mt-3 ml-6">
+                                {situationGuidance}
                               </p>
-
-                              {branch.last_commit_at && (
-                                <p data-testid={`text-discovered-lastcommit-${branch.id}`} className="text-[10px] text-muted-foreground mt-1 ml-6">
-                                  Last activity {timeAgo(branch.last_commit_at)}
-                                </p>
-                              )}
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2 mt-4 ml-6 flex-wrap">
-                            <button
-                              data-testid={`button-triage-merge-default-${branch.id}`}
-                              onClick={() => triageBranch.mutate({ branchName: branch.branch_name, action: "merge_to_default" })}
-                              disabled={isTriaging}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-green-600 text-white hover:bg-green-700 transition-colors disabled:opacity-50"
-                            >
-                              <GitMerge className="w-3 h-3" />
-                              {isTriaging ? "..." : "Add to project"}
-                            </button>
-
-                            {hasReplit && (
+                          <div className="mt-4 ml-6 space-y-3">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <button
-                                data-testid={`button-triage-assign-replit-${branch.id}`}
-                                onClick={() => triageBranch.mutate({ branchName: branch.branch_name, action: "assign_to_replit" })}
+                                data-testid={`button-triage-merge-default-${branch.id}`}
+                                onClick={() => triageBranch.mutate({ branchName: branch.branch_name, action: "merge_to_default" })}
                                 disabled={isTriaging}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-foreground text-background hover:bg-foreground/90 transition-colors disabled:opacity-50"
                               >
-                                <Send className="w-3 h-3" />
-                                {isTriaging ? "..." : "Send to Replit"}
+                                <GitMerge className="w-3 h-3" />
+                                {isTriaging ? "..." : "Add to project"}
                               </button>
-                            )}
 
-                            {likelyConn && likelyConn.branch_name && (
+                              {hasReplit && (
+                                <button
+                                  data-testid={`button-triage-assign-replit-${branch.id}`}
+                                  onClick={() => triageBranch.mutate({ branchName: branch.branch_name, action: "assign_to_replit" })}
+                                  disabled={isTriaging}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border text-foreground hover:border-foreground/40 hover:bg-muted transition-colors disabled:opacity-50"
+                                >
+                                  <Send className="w-3 h-3" />
+                                  {isTriaging ? "..." : "Send to Replit"}
+                                </button>
+                              )}
+
+                              {likelyConn && likelyConn.branch_name && (
+                                <button
+                                  data-testid={`button-triage-merge-platform-${branch.id}`}
+                                  onClick={() => triageBranch.mutate({ branchName: branch.branch_name, action: "merge_to_platform", platform_branch: likelyConn.branch_name! })}
+                                  disabled={isTriaging}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border text-foreground hover:border-foreground/40 hover:bg-muted transition-colors disabled:opacity-50"
+                                >
+                                  <ArrowDownToLine className="w-3 h-3" />
+                                  {isTriaging ? "..." : `Merge into ${platformLabel} branch`}
+                                </button>
+                              )}
+
                               <button
-                                data-testid={`button-triage-merge-platform-${branch.id}`}
-                                onClick={() => triageBranch.mutate({ branchName: branch.branch_name, action: "merge_to_platform", platform_branch: likelyConn.branch_name! })}
+                                data-testid={`button-triage-dismiss-${branch.id}`}
+                                onClick={() => triageBranch.mutate({ branchName: branch.branch_name, action: "dismiss" })}
                                 disabled={isTriaging}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-violet-600 text-white hover:bg-violet-700 transition-colors disabled:opacity-50"
+                                title="Hide this branch from the list"
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground border border-border hover:border-foreground/30 transition-all disabled:opacity-50"
                               >
-                                <ArrowDownToLine className="w-3 h-3" />
-                                {isTriaging ? "..." : `Merge into ${platformLabel} branch`}
+                                <EyeOff className="w-3 h-3" />
+                                Hide
                               </button>
-                            )}
+                            </div>
 
-                            <button
-                              data-testid={`button-triage-dismiss-${branch.id}`}
-                              onClick={() => triageBranch.mutate({ branchName: branch.branch_name, action: "dismiss" })}
-                              disabled={isTriaging}
-                              title="Hide this branch from the list"
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground border border-border hover:border-foreground/30 transition-all disabled:opacity-50"
-                            >
-                              <EyeOff className="w-3 h-3" />
-                              Hide
-                            </button>
+                            <div className="flex flex-col gap-0.5" data-testid={`button-descriptions-${branch.id}`}>
+                              <p className="text-[11px] text-muted-foreground/60">
+                                <span className="font-medium text-muted-foreground">Add to project</span> — Links this branch to your agents list and starts tracking it
+                              </p>
+                              {hasReplit && (
+                                <p className="text-[11px] text-muted-foreground/60">
+                                  <span className="font-medium text-muted-foreground">Send to Replit</span> — Merges this branch's changes into your Replit workspace
+                                </p>
+                              )}
+                              <p className="text-[11px] text-muted-foreground/60">
+                                <span className="font-medium text-muted-foreground">Hide</span> — Removes from this list — the branch stays on GitHub
+                              </p>
+                            </div>
                           </div>
 
                           {triageConflictInfo && triageConflictInfo.branchName === branch.branch_name && (
