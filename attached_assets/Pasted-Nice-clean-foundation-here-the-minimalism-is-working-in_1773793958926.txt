@@ -1,0 +1,16 @@
+Nice clean foundation here — the minimalism is working in your favor. Here's how to push it to state-of-the-art:
+Typography
+The headline is good but generic. Consider a tighter line-height and a slight negative letter-spacing (−0.02em to −0.04em) on the display type — premium SaaS sites like Linear and Vercel do this and it reads as intentional craft. Also, the subhead gray is a bit flat; try a warmer neutral or slightly blue-tinted gray to feel less "default."
+Hero Section
+You have no visual anchor below the headline — just a CTA button floating in space. The best landing pages today use one of: a live product screenshot/mockup with a subtle drop shadow and slight tilt (3–5°), a short looping demo video embedded inline, or an animated diagram showing the branch-sync concept in motion. Right now the space between the CTA and the feature cards is dead air.
+The CTA Button
+The black pill button is solid, but consider adding a very subtle hover state — a slight scale (1.02) or a soft glow/shadow pulse. It signals interactivity before the click. Also the GitHub icon could be slightly larger relative to the text.
+Feature Cards
+The three cards are too uniform and too quiet. Modern approaches: give them a very slight glassmorphism treatment (backdrop-filter blur with 1px border), or use a subtle gradient border on hover. The icons are too small and too gray — size them up and give them a bit more personality. Also consider adding a one-line "so what" outcome stat under each description (e.g., "Know the moment a branch falls behind" → "Catches drift in < 30 seconds").
+Spacing & Layout
+The section between the hero CTA and the cards needs either a product visual or a tight social proof strip — logos of tools it connects to (Replit, Claude Code, GitHub) or a "used by X developers" micro-stat. This is the single biggest conversion gap on the page right now.
+Color & Depth
+Pure white (#FFFFFF) backgrounds feel slightly sterile now. The trending move is an off-white base — #FAFAFA or a barely-warm #F9F8F6 — which makes the white cards pop as elevated surfaces. Pair that with a very faint radial gradient in the hero (light gray blooming from center).
+Navigation
+"Log in" alone in the top right is lonely. Add a secondary "Book a demo" or "See how it works" text link next to it, and consider pinning the nav with a frosted glass effect on scroll — it signals production quality immediately.
+The biggest single ROI move: drop a product screenshot or animated GIF of the actual dashboard between the CTA button and the feature cards. That dead space is where you're losing visitors.
