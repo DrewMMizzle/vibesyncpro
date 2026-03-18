@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Github, GitBranch, Merge, Search, Globe, Bot, Monitor } from "lucide-react";
-import { SiGithub, SiReplit, SiAnthropic } from "react-icons/si";
+import { SiGithub, SiReplit, SiClaude } from "react-icons/si";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 
@@ -234,7 +234,7 @@ export default function Home() {
           <div className="flex items-center gap-3.5">
             <SiGithub className="w-4 h-4" aria-label="GitHub" />
             <SiReplit className="w-4 h-4" aria-label="Replit" />
-            <SiAnthropic className="w-4 h-4" aria-label="Anthropic" />
+            <SiClaude className="w-4 h-4" aria-label="Claude" />
           </div>
         </motion.div>
 
