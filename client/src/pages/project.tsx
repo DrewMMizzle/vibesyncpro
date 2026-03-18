@@ -2199,6 +2199,11 @@ export default function ProjectPage() {
                                   <span className="font-medium text-muted-foreground">Send to Replit</span> — Merges this branch's changes into your Replit workspace
                                 </p>
                               )}
+                              {likelyConn && likelyConn.branch_name && (
+                                <p className="text-[11px] text-muted-foreground/60">
+                                  <span className="font-medium text-muted-foreground">Merge into {platformLabel} branch</span> — Pulls this branch's changes into your {platformLabel} agent's working branch
+                                </p>
+                              )}
                               <p className="text-[11px] text-muted-foreground/60">
                                 <span className="font-medium text-muted-foreground">Hide</span> — Removes from this list — the branch stays on GitHub
                               </p>
