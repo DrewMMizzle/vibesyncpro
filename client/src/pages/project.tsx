@@ -2167,12 +2167,12 @@ export default function ProjectPage() {
                                 </span>
                               </div>
 
-                              <p data-testid={`text-discovered-platform-${branch.id}`} className="text-xs text-muted-foreground mt-1 ml-6">
+                              <p data-testid={`text-discovered-platform-${branch.id}`} className="text-xs text-foreground/60 mt-1 ml-6">
                                 {branch.likely_platform
                                   ? `Looks like it came from your ${PLATFORM_LABELS[branch.likely_platform as Platform] ?? branch.likely_platform} agent`
                                   : "Not linked to any of your agents"}
                                 {branch.last_commit_at && (
-                                  <span data-testid={`text-discovered-lastcommit-${branch.id}`} className="ml-2 text-muted-foreground/60">
+                                  <span data-testid={`text-discovered-lastcommit-${branch.id}`} className="ml-2">
                                     · Last activity {timeAgo(branch.last_commit_at)}
                                   </span>
                                 )}
@@ -2300,7 +2300,7 @@ export default function ProjectPage() {
                                     <div>
                                       <button
                                         onClick={() => setScoutFileExpanded((s) => { const n = new Set(s); n.has(branch.id) ? n.delete(branch.id) : n.add(branch.id); return n; })}
-                                        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                                        className="flex items-center gap-1 text-[11px] text-foreground/60 hover:text-foreground transition-colors"
                                         data-testid={`button-scout-files-toggle-${branch.id}`}
                                       >
                                         {isFilesExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
@@ -2309,7 +2309,7 @@ export default function ProjectPage() {
                                       {isFilesExpanded && (
                                         <div className="mt-2 space-y-0.5" data-testid={`scout-files-${branch.id}`}>
                                           {result.changed_files.map((f) => (
-                                            <p key={f} className="text-[11px] font-mono text-muted-foreground pl-4 truncate">{f}</p>
+                                            <p key={f} className="text-[11px] font-mono text-foreground/60 pl-4 truncate">{f}</p>
                                           ))}
                                         </div>
                                       )}
@@ -2320,21 +2320,21 @@ export default function ProjectPage() {
                             })()}
 
                             <div className="flex flex-col gap-0.5" data-testid={`button-descriptions-${branch.id}`}>
-                              <p className="text-[11px] text-muted-foreground/60">
-                                <span className="font-medium text-muted-foreground">Add to project</span> — Links this branch to your agents list and starts tracking it
+                              <p className="text-[11px] text-foreground/50">
+                                <span className="font-medium text-foreground/70">Add to project</span> — Links this branch to your agents list and starts tracking it
                               </p>
                               {hasReplit && (
-                                <p className="text-[11px] text-muted-foreground/60">
-                                  <span className="font-medium text-muted-foreground">Send to Replit</span> — Merges this branch's changes into your Replit workspace
+                                <p className="text-[11px] text-foreground/50">
+                                  <span className="font-medium text-foreground/70">Send to Replit</span> — Merges this branch's changes into your Replit workspace
                                 </p>
                               )}
                               {likelyConn && likelyConn.branch_name && (
-                                <p className="text-[11px] text-muted-foreground/60">
-                                  <span className="font-medium text-muted-foreground">Merge into {platformLabel} branch</span> — Pulls this branch's changes into your {platformLabel} agent's working branch
+                                <p className="text-[11px] text-foreground/50">
+                                  <span className="font-medium text-foreground/70">Merge into {platformLabel} branch</span> — Pulls this branch's changes into your {platformLabel} agent's working branch
                                 </p>
                               )}
-                              <p className="text-[11px] text-muted-foreground/60">
-                                <span className="font-medium text-muted-foreground">Hide</span> — Removes from this list — the branch stays on GitHub
+                              <p className="text-[11px] text-foreground/50">
+                                <span className="font-medium text-foreground/70">Hide</span> — Removes from this list — the branch stays on GitHub
                               </p>
                             </div>
                           </div>
