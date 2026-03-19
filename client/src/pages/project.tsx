@@ -990,7 +990,7 @@ export default function ProjectPage() {
   });
 
   const [showActivity, setShowActivity] = useState(false);
-  const [triageConflictInfo, setTriageConflictInfo] = useState<{ branchName: string; url: string } | null>(null);
+  const [triageConflictInfo, setTriageConflictInfo] = useState<{ branchName: string; url: string; actionLabel: string } | null>(null);
 
   interface ScoutResult {
     summary: string;
@@ -1143,7 +1143,21 @@ export default function ProjectPage() {
     onError: (err: Error & { conflict_url?: string }, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "activity"] });
       if (err.conflict_url) {
-        setTriageConflictInfo({ branchName: variables.branchName, url: err.conflict_url });
+        let actionLabel: string;
+        switch (variables.action) {
+          case "merge_to_default":
+            actionLabel = "Add to project";
+            break;
+          case "assign_to_replit":
+            actionLabel = "Send to Replit";
+            break;
+          case "merge_to_platform":
+            actionLabel = variables.platform_branch ? `Merge into ${variables.platform_branch}` : "Merge to platform branch";
+            break;
+          default:
+            actionLabel = "This action";
+        }
+        setTriageConflictInfo({ branchName: variables.branchName, url: err.conflict_url, actionLabel });
         toast({
           title: "Conflict detected",
           description: "These branches edited the same files differently.",
@@ -2344,8 +2358,11 @@ export default function ProjectPage() {
                               <div className="flex items-start gap-2">
                                 <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
                                 <div>
-                                  <p className="text-sm text-red-700 dark:text-red-300">
-                                    These branches edited the same files differently. You'll need to resolve the conflicts on GitHub.
+                                  <p className="text-sm font-medium text-red-700 dark:text-red-300">
+                                    "{triageConflictInfo.actionLabel}" found a conflict
+                                  </p>
+                                  <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+                                    These branches edited the same files differently. You'll need to resolve the conflicts on GitHub before trying again.
                                   </p>
                                   <a
                                     href={triageConflictInfo.url}
