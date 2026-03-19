@@ -910,6 +910,13 @@ async function runBranchScan(projectId: number, token: string, owner: string, re
       }
     }
 
+    if (likelyPlatform === null) {
+      const lc = branch.name.toLowerCase();
+      if (lc.includes("replit")) likelyPlatform = "replit";
+      else if (lc.includes("claude")) likelyPlatform = "claude_code";
+      else if (lc.includes("computer")) likelyPlatform = "computer";
+    }
+
     let lastCommitAt: Date | null = null;
     try {
       const commitDetail = await githubFetch(
