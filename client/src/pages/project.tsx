@@ -1754,7 +1754,7 @@ export default function ProjectPage() {
                           {STATUS_LABELS[conn.status]}
                         </span>
                         {conn.last_synced_at && (
-                          <p data-testid={`text-synced-at-${conn.id}`} className="text-[10px] text-muted-foreground/60">
+                          <p data-testid={`text-synced-at-${conn.id}`} className="text-xs text-foreground/50">
                             {timeAgo(conn.last_synced_at)}
                           </p>
                         )}
@@ -2300,7 +2300,7 @@ export default function ProjectPage() {
                                     <div>
                                       <button
                                         onClick={() => setScoutFileExpanded((s) => { const n = new Set(s); n.has(branch.id) ? n.delete(branch.id) : n.add(branch.id); return n; })}
-                                        className="flex items-center gap-1 text-[11px] text-foreground/60 hover:text-foreground transition-colors"
+                                        className="flex items-center gap-1 text-xs text-foreground/60 hover:text-foreground transition-colors"
                                         data-testid={`button-scout-files-toggle-${branch.id}`}
                                       >
                                         {isFilesExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
@@ -2309,7 +2309,7 @@ export default function ProjectPage() {
                                       {isFilesExpanded && (
                                         <div className="mt-2 space-y-0.5" data-testid={`scout-files-${branch.id}`}>
                                           {result.changed_files.map((f) => (
-                                            <p key={f} className="text-[11px] font-mono text-foreground/60 pl-4 truncate">{f}</p>
+                                            <p key={f} className="text-xs font-mono text-foreground/60 pl-4 truncate">{f}</p>
                                           ))}
                                         </div>
                                       )}
@@ -2319,22 +2319,22 @@ export default function ProjectPage() {
                               );
                             })()}
 
-                            <div className="flex flex-col gap-0.5" data-testid={`button-descriptions-${branch.id}`}>
-                              <p className="text-[11px] text-foreground/50">
-                                <span className="font-medium text-foreground/70">Add to project</span> — Links this branch to your agents list and starts tracking it
+                            <div className="flex flex-col gap-1" data-testid={`button-descriptions-${branch.id}`}>
+                              <p className="text-xs text-foreground/60">
+                                <span className="font-medium text-foreground/80">Add to project</span> — Links this branch to your agents list and starts tracking it
                               </p>
                               {hasReplit && (
-                                <p className="text-[11px] text-foreground/50">
-                                  <span className="font-medium text-foreground/70">Send to Replit</span> — Merges this branch's changes into your Replit workspace
+                                <p className="text-xs text-foreground/60">
+                                  <span className="font-medium text-foreground/80">Send to Replit</span> — Merges this branch's changes into your Replit workspace
                                 </p>
                               )}
                               {likelyConn && likelyConn.branch_name && (
-                                <p className="text-[11px] text-foreground/50">
-                                  <span className="font-medium text-foreground/70">Merge into {platformLabel} branch</span> — Pulls this branch's changes into your {platformLabel} agent's working branch
+                                <p className="text-xs text-foreground/60">
+                                  <span className="font-medium text-foreground/80">Merge into {platformLabel} branch</span> — Pulls this branch's changes into your {platformLabel} agent's working branch
                                 </p>
                               )}
-                              <p className="text-[11px] text-foreground/50">
-                                <span className="font-medium text-foreground/70">Hide</span> — Removes from this list — the branch stays on GitHub
+                              <p className="text-xs text-foreground/60">
+                                <span className="font-medium text-foreground/80">Hide</span> — Removes from this list — the branch stays on GitHub
                               </p>
                             </div>
                           </div>
@@ -2407,12 +2407,12 @@ export default function ProjectPage() {
                           {entry.description}
                         </p>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <p data-testid={`activity-time-${entry.id}`} className="text-[10px] text-muted-foreground">
+                          <p data-testid={`activity-time-${entry.id}`} className="text-xs text-foreground/60">
                             {timeAgo(entry.created_at)}
                           </p>
                           {typeof entry.metadata === "object" && entry.metadata !== null && !!(entry.metadata as Record<string, unknown>).branch && (
-                            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                              <GitBranch className="w-2.5 h-2.5" />
+                            <span className="text-xs text-foreground/60 flex items-center gap-0.5">
+                              <GitBranch className="w-3 h-3" />
                               {String((entry.metadata as Record<string, unknown>).branch)}
                             </span>
                           )}
@@ -2442,12 +2442,12 @@ export default function ProjectPage() {
                             {entry.description}
                           </p>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <p data-testid={`activity-time-${entry.id}`} className="text-[10px] text-muted-foreground">
+                            <p data-testid={`activity-time-${entry.id}`} className="text-xs text-foreground/60">
                               {timeAgo(entry.created_at)}
                             </p>
                             {typeof entry.metadata === "object" && entry.metadata !== null && !!(entry.metadata as Record<string, unknown>).branch && (
-                              <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                                <GitBranch className="w-2.5 h-2.5" />
+                              <span className="text-xs text-foreground/60 flex items-center gap-0.5">
+                                <GitBranch className="w-3 h-3" />
                                 {String((entry.metadata as Record<string, unknown>).branch)}
                               </span>
                             )}
