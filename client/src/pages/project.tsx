@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -9,7 +9,7 @@ import {
   Search, Lock, Unlock, ExternalLink, GitMerge, ArrowDownToLine, Zap, AlertTriangle,
   Eye, EyeOff, Send, FolderGit2, ChevronDown, ChevronRight, Pencil, Check, X, Settings,
   Activity, CircleCheck, CircleAlert, CircleDot, CircleX, Rocket, GitFork,
-  Copy, Terminal, Lightbulb, ArrowRight, Sparkles,
+  Copy, Terminal, Lightbulb, ArrowRight, Sparkles, Undo2, RotateCcw,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -157,6 +157,8 @@ function getActivityIcon(eventType: string) {
     case "branch_assigned": return <Send className="w-4 h-4" />;
     case "branch_conflict": return <CircleX className="w-4 h-4" />;
     case "stuck_rebase_detected": return <AlertTriangle className="w-4 h-4" />;
+    case "agent_change_summary": return <Sparkles className="w-4 h-4" />;
+    case "undo_merge": return <RotateCcw className="w-4 h-4" />;
     default: return <CircleDot className="w-4 h-4" />;
   }
 }
@@ -175,8 +177,18 @@ function getActivityColor(eventType: string): string {
     case "branch_assigned": return "text-blue-500";
     case "branch_conflict": return "text-red-500";
     case "stuck_rebase_detected": return "text-amber-500";
+    case "agent_change_summary": return "text-violet-500";
+    case "undo_merge": return "text-blue-500";
     default: return "text-muted-foreground";
   }
+}
+
+function canUndoEntry(entry: ActivityEntry): boolean {
+  const meta = entry.metadata ?? {};
+  return (
+    (entry.event_type === "resolve_success" && meta.action === "merge_to_default" && !!meta.pre_merge_sha) ||
+    (entry.event_type === "branch_merged" && (meta.action === "merge_to_default" || meta.action === "merge_to_platform") && !!meta.pre_merge_sha)
+  );
 }
 
 interface GeniusConflictFile {
@@ -1330,6 +1342,51 @@ export default function ProjectPage() {
   });
 
   const [showActivity, setShowActivity] = useState(false);
+
+  // Undo dismiss: optimistic debounced hide with 5-second cancel window (Task #32)
+  const [pendingDismisses, setPendingDismisses] = useState<Set<string>>(new Set());
+  const pendingDismissTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  function handleDismiss(branchName: string) {
+    setPendingDismisses((prev) => new Set(prev).add(branchName));
+    const timer = setTimeout(() => {
+      triageBranch.mutate({ branchName, action: "dismiss" });
+      setPendingDismisses((prev) => { const n = new Set(prev); n.delete(branchName); return n; });
+      pendingDismissTimers.current.delete(branchName);
+    }, 5000);
+    pendingDismissTimers.current.set(branchName, timer);
+  }
+
+  function handleUndoDismiss(branchName: string) {
+    const timer = pendingDismissTimers.current.get(branchName);
+    if (timer) { clearTimeout(timer); pendingDismissTimers.current.delete(branchName); }
+    setPendingDismisses((prev) => { const n = new Set(prev); n.delete(branchName); return n; });
+  }
+
+  // Undo merge: revert a VibeSyncPro-performed merge (Task #32)
+  const [undoneEntryIds, setUndoneEntryIds] = useState<Set<number>>(new Set());
+
+  const undoMerge = useMutation({
+    mutationFn: async (entryId: number) => {
+      const res = await fetch(`/api/projects/${projectId}/activity/${entryId}/undo`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message || "Undo failed");
+      return body;
+    },
+    onSuccess: (_data, entryId) => {
+      setUndoneEntryIds((prev) => new Set(prev).add(entryId));
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "activity"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId] });
+      toast({ title: "Merge undone", description: "The branch has been reset to its pre-merge state." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Couldn't undo", description: err.message, variant: "destructive" });
+    },
+  });
+
   const [triageConflictInfo, setTriageConflictInfo] = useState<{ branchName: string; url: string; actionLabel: string; targetBranch: string | null } | null>(null);
   const [geniusBranchInfo, setGeniusBranchInfo] = useState<{ branchName: string; targetBranch: string } | null>(null);
 
@@ -2581,16 +2638,31 @@ export default function ProjectPage() {
                                 </button>
                               )}
 
-                              <button
-                                data-testid={`button-triage-dismiss-${branch.id}`}
-                                onClick={() => triageBranch.mutate({ branchName: branch.branch_name, action: "dismiss" })}
-                                disabled={isTriaging}
-                                title="Hide this branch from the list"
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground border border-border hover:border-foreground/30 transition-all disabled:opacity-50"
-                              >
-                                <EyeOff className="w-3 h-3" />
-                                Hide
-                              </button>
+                              {pendingDismisses.has(branch.branch_name) ? (
+                                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-foreground/50 border border-border">
+                                  <EyeOff className="w-3 h-3" />
+                                  <span>Hidden</span>
+                                  <span className="text-foreground/30">·</span>
+                                  <button
+                                    data-testid={`button-triage-undodismiss-${branch.id}`}
+                                    onClick={() => handleUndoDismiss(branch.branch_name)}
+                                    className="text-foreground/70 hover:text-foreground underline underline-offset-2 transition-colors"
+                                  >
+                                    Undo
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  data-testid={`button-triage-dismiss-${branch.id}`}
+                                  onClick={() => handleDismiss(branch.branch_name)}
+                                  disabled={isTriaging}
+                                  title="Hide this branch from the list"
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground border border-border hover:border-foreground/30 transition-all disabled:opacity-50"
+                                >
+                                  <EyeOff className="w-3 h-3" />
+                                  Hide
+                                </button>
+                              )}
 
                               {(typeof scoutResults[branch.id] !== "object" || !scoutResults[branch.id]) && (
                                 <button
@@ -2769,6 +2841,7 @@ export default function ProjectPage() {
                 {activityEntries.slice(0, 3).map((entry) => {
                   const icon = getActivityIcon(entry.event_type);
                   const color = getActivityColor(entry.event_type);
+                  const undoable = canUndoEntry(entry) && !undoneEntryIds.has(entry.id);
                   return (
                     <div
                       key={entry.id}
@@ -2782,7 +2855,7 @@ export default function ProjectPage() {
                         <p data-testid={`activity-desc-${entry.id}`} className="text-sm text-foreground">
                           {entry.description}
                         </p>
-                        <div className="flex items-center gap-2 mt-0.5">
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                           <p data-testid={`activity-time-${entry.id}`} className="text-xs text-foreground/60">
                             {timeAgo(entry.created_at)}
                           </p>
@@ -2791,6 +2864,17 @@ export default function ProjectPage() {
                               <GitBranch className="w-3 h-3" />
                               {String((entry.metadata as Record<string, unknown>).branch)}
                             </span>
+                          )}
+                          {undoable && (
+                            <button
+                              data-testid={`button-undo-merge-${entry.id}`}
+                              onClick={() => undoMerge.mutate(entry.id)}
+                              disabled={undoMerge.isPending}
+                              className="ml-auto flex items-center gap-1 text-xs text-foreground/40 hover:text-foreground transition-colors disabled:opacity-50"
+                            >
+                              <Undo2 className="w-3 h-3" />
+                              Undo
+                            </button>
                           )}
                         </div>
                       </div>
@@ -2801,6 +2885,7 @@ export default function ProjectPage() {
                   {showActivity && activityEntries.slice(3).map((entry) => {
                     const icon = getActivityIcon(entry.event_type);
                     const color = getActivityColor(entry.event_type);
+                    const undoable = canUndoEntry(entry) && !undoneEntryIds.has(entry.id);
                     return (
                       <motion.div
                         key={entry.id}
@@ -2817,7 +2902,7 @@ export default function ProjectPage() {
                           <p data-testid={`activity-desc-${entry.id}`} className="text-sm text-foreground">
                             {entry.description}
                           </p>
-                          <div className="flex items-center gap-2 mt-0.5">
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                             <p data-testid={`activity-time-${entry.id}`} className="text-xs text-foreground/60">
                               {timeAgo(entry.created_at)}
                             </p>
@@ -2826,6 +2911,17 @@ export default function ProjectPage() {
                                 <GitBranch className="w-3 h-3" />
                                 {String((entry.metadata as Record<string, unknown>).branch)}
                               </span>
+                            )}
+                            {undoable && (
+                              <button
+                                data-testid={`button-undo-merge-${entry.id}`}
+                                onClick={() => undoMerge.mutate(entry.id)}
+                                disabled={undoMerge.isPending}
+                                className="ml-auto flex items-center gap-1 text-xs text-foreground/40 hover:text-foreground transition-colors disabled:opacity-50"
+                              >
+                                <Undo2 className="w-3 h-3" />
+                                Undo
+                              </button>
                             )}
                           </div>
                         </div>
