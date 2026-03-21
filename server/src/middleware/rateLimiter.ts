@@ -2,7 +2,12 @@ import rateLimit from "express-rate-limit";
 import type { Request } from "express";
 
 function getUserKey(req: Request): string {
-  return String(req.session?.userId ?? "anon");
+  if (req.session?.userId) {
+    return `user:${req.session.userId}`;
+  }
+  // Fall back to IP for unauthenticated requests so they aren't all in one bucket
+  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  return `ip:${ip}`;
 }
 
 export const syncLimiter = rateLimit({

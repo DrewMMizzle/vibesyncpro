@@ -3,8 +3,12 @@ import MemoryStore from "memorystore";
 
 const MemoryStoreSession = MemoryStore(session);
 
+import crypto from "crypto";
+
+const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+
 export const sessionMiddleware = session({
-  secret: process.env.SESSION_SECRET || "vibesyncpro-dev-secret",
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
   store: new MemoryStoreSession({

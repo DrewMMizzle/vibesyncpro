@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import helmet from "helmet";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { sessionMiddleware, authRouter, usersRouter, projectsRouter, githubRouter } from "./src/index";
@@ -27,6 +28,13 @@ if (process.env.NODE_ENV === "production" && !process.env.GEMINI_API_KEY) {
 
 const app = express();
 app.set("trust proxy", 1);
+
+app.use(
+  helmet({
+    contentSecurityPolicy: process.env.NODE_ENV === "production",
+  }),
+);
+
 const httpServer = createServer(app);
 
 declare module "http" {
@@ -83,7 +91,8 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        const summary = JSON.stringify(capturedJsonResponse);
+        logLine += ` :: ${summary.length > 200 ? summary.slice(0, 200) + "…" : summary}`;
       }
 
       log(logLine);
