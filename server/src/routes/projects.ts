@@ -6,6 +6,7 @@ import { githubFetch, getAccessToken, GitHubRateLimitError, NoGitHubTokenError, 
 import { syncLimiter, scanLimiter } from "../middleware/rateLimiter";
 import type { Project, PlatformConnection, DiscoveredBranch } from "@shared/schema";
 import geniusRouter from "./genius";
+import branchGeniusRouter from "./branchGenius";
 
 const router = Router();
 
@@ -1296,5 +1297,6 @@ router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) =>
 });
 
 router.use("/:id/connections/:connId/genius", geniusRouter);
+router.use("/:id/branches/:branchName/genius", branchGeniusRouter);
 
 export default router;
