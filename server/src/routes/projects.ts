@@ -315,6 +315,7 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
 
   const results: Array<{ id: number; platform: string; branch_name: string | null; status: string; last_synced_at: string | null; ahead_by?: number; behind_by?: number; stuck_state?: string | null; stuck_since?: string | null; is_newly_stuck?: boolean }> = [];
   const errors: Array<{ id: number; platform: string; error: string }> = [];
+  const headShasToSummarize = new Map<number, { sha: string; messages: string[]; platform: string; branch: string | null }>();
 
   for (const conn of connections) {
     if (!conn.branch_name) {
@@ -345,6 +346,18 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
         status = "conflict";
       } else {
         status = "drifted";
+      }
+
+      // Track head SHA for AI change digest (Task #31)
+      const headSha = comparison.head_commit?.sha ?? null;
+      if (headSha && aheadBy > 0 && headSha !== conn.last_summarized_commit_sha) {
+        const digestMessages = comparison.commits
+          .filter((c) => !c.commit.message.includes("via VibeSyncPro"))
+          .map((c) => c.commit.message.split("\n")[0].trim())
+          .filter((m) => m.length > 0);
+        if (digestMessages.length > 0) {
+          headShasToSummarize.set(conn.id, { sha: headSha, messages: digestMessages, platform: conn.platform, branch: conn.branch_name });
+        }
       }
 
       // Stuck rebase detection: if the branch is in conflict, check whether
@@ -438,6 +451,44 @@ router.post("/:id/sync", requireAuth, syncLimiter, async (req, res) => {
   for (const e of errors) {
     const platformLabel = PLATFORM_LABELS[e.platform] ?? e.platform;
     await storage.addActivityLog(projectId, "sync_error", `Sync failed for ${platformLabel}`, { platform: e.platform, error: e.error });
+  }
+
+  // AI Change Digest: Gemini summarizes new commits on agent branches (Task #31)
+  const geminiKeyForDigest = process.env.GEMINI_API_KEY;
+  if (geminiKeyForDigest && headShasToSummarize.size > 0) {
+    for (const [connId, { sha, messages, platform, branch }] of headShasToSummarize) {
+      const platformLabelDigest = PLATFORM_LABELS[platform] ?? platform;
+      try {
+        const prompt = `Summarize in 1-2 plain-English sentences what an AI coding agent did, based on these commit messages. Start the sentence with "Your ${platformLabelDigest} agent".\n\n${messages.map((m, i) => `${i + 1}. ${m}`).join("\n")}\n\nBe concise and specific about features, fixes, or refactors. No technical jargon.`;
+        const digestGeminiRes = await fetch(
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-goog-api-key": geminiKeyForDigest },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: prompt }] }],
+              generationConfig: { temperature: 0.3, maxOutputTokens: 200 },
+            }),
+            signal: AbortSignal.timeout(15_000),
+          }
+        );
+        if (digestGeminiRes.ok) {
+          const digestData = await digestGeminiRes.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+          const digestText = (digestData.candidates?.[0]?.content?.parts?.[0]?.text ?? "").trim();
+          if (digestText) {
+            await storage.addActivityLog(projectId, "agent_change_summary", digestText, {
+              platform,
+              branch,
+              commit_sha: sha,
+              commit_count: messages.length,
+            });
+            await storage.updateConnection(connId, { last_summarized_commit_sha: sha });
+          }
+        }
+      } catch (err) {
+        console.error(`Change digest failed for connection ${connId}:`, err instanceof Error ? err.message : "unknown");
+      }
+    }
   }
 
   let discoveredBranchesList: ReturnType<typeof formatDiscoveredBranch>[] = [];
@@ -661,16 +712,27 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
 
   const branchName = conn.branch_name;
 
+  // Capture pre-merge SHA of target branch for undo support (Task #32)
+  let preMergeSha: string | null = null;
+  let postMergeSha: string | null = null;
+  if (action === "merge_to_default") {
+    try {
+      const targetRef = await githubFetch(token, `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(defaultBranch)}`) as { object: { sha: string } };
+      preMergeSha = targetRef.object.sha;
+    } catch { /* non-blocking */ }
+  }
+
   try {
     if (action === "merge_to_default") {
-      await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
+      const mergeResult = await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
         method: "POST",
         body: {
           base: defaultBranch,
           head: branchName,
           commit_message: `Merge ${branchName} into ${defaultBranch} via VibeSyncPro`,
         },
-      });
+      }) as { sha: string } | null;
+      postMergeSha = mergeResult?.sha ?? null;
       try {
         await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
           method: "POST",
@@ -725,7 +787,12 @@ router.post("/:id/connections/:connId/resolve", requireAuth, async (req, res) =>
     const actionDesc = action === "merge_to_default"
       ? `${platformLabel} branch merged to ${defaultBranch}`
       : `${platformLabel} branch updated from ${defaultBranch}`;
-    await storage.addActivityLog(projectId, "resolve_success", actionDesc, { platform: conn.platform, branch: branchName, action });
+    await storage.addActivityLog(projectId, "resolve_success", actionDesc, {
+      platform: conn.platform,
+      branch: branchName,
+      action,
+      ...(action === "merge_to_default" && preMergeSha ? { pre_merge_sha: preMergeSha, post_merge_sha: postMergeSha, target_branch: defaultBranch } : {}),
+    });
 
     return res.json({
       id: conn.id,
@@ -1243,16 +1310,28 @@ router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) =>
     return res.status(502).json({ message: "Failed to fetch repository info from GitHub" });
   }
 
+  // Capture pre-merge SHA of target branch for undo support (Task #32)
+  let triagePreMergeSha: string | null = null;
+  let triagePostMergeSha: string | null = null;
+  const triageTarget = action === "merge_to_default" ? defaultBranch : platform_branch ?? null;
+  if (triageTarget) {
+    try {
+      const targetRef = await githubFetch(token, `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(triageTarget)}`) as { object: { sha: string } };
+      triagePreMergeSha = targetRef.object.sha;
+    } catch { /* non-blocking */ }
+  }
+
   try {
     if (action === "merge_to_default") {
-      await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
+      const triageMergeResult = await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
         method: "POST",
         body: {
           base: defaultBranch,
           head: branchName,
           commit_message: `Merge ${branchName} into ${defaultBranch} via VibeSyncPro`,
         },
-      });
+      }) as { sha: string } | null;
+      triagePostMergeSha = triageMergeResult?.sha ?? null;
     } else if (action === "merge_to_platform") {
       if (!platform_branch) {
         return res.status(400).json({ message: "platform_branch is required for merge_to_platform" });
@@ -1262,19 +1341,25 @@ router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) =>
       if (!validBranch) {
         return res.status(400).json({ message: "platform_branch must match a registered connection branch" });
       }
-      await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
+      const triageMergeResult2 = await githubFetch(token, `/repos/${owner}/${repo}/merges`, {
         method: "POST",
         body: {
           base: platform_branch,
           head: branchName,
           commit_message: `Merge ${branchName} into ${platform_branch} via VibeSyncPro`,
         },
-      });
+      }) as { sha: string } | null;
+      triagePostMergeSha = triageMergeResult2?.sha ?? null;
     }
 
     if (discoveredBranch) await storage.deleteDiscoveredBranch(discoveredBranch.id);
     const target = action === "merge_to_default" ? defaultBranch : (platform_branch ?? "platform branch");
-    await storage.addActivityLog(projectId, "branch_merged", `Branch "${branchName}" merged to ${target}`, { branch: branchName, action, target });
+    await storage.addActivityLog(projectId, "branch_merged", `Branch "${branchName}" merged to ${target}`, {
+      branch: branchName,
+      action,
+      target,
+      ...(triagePreMergeSha ? { pre_merge_sha: triagePreMergeSha, post_merge_sha: triagePostMergeSha, target_branch: target } : {}),
+    });
     return res.json({ message: "Branch merged successfully" });
   } catch (err) {
     if (err instanceof GitHubTokenRevokedError) {
@@ -1294,6 +1379,91 @@ router.post("/:id/branches/:branchName/triage", requireAuth, async (req, res) =>
     console.error(`Triage error for branch ${branchName}:`, errorMessage);
     return res.status(502).json({ message: "Failed to merge branches on GitHub. Please try again." });
   }
+});
+
+// POST /api/projects/:id/activity/:entryId/undo — revert a VibeSyncPro-performed merge (Task #32)
+router.post("/:id/activity/:entryId/undo", requireAuth, async (req, res) => {
+  const projectId = parseInt(req.params.id as string, 10);
+  const entryId = parseInt(req.params.entryId as string, 10);
+  if (isNaN(projectId) || isNaN(entryId)) return res.status(400).json({ message: "Invalid ID" });
+
+  const project = await storage.getProjectById(projectId);
+  if (!project) return res.status(404).json({ message: "Project not found" });
+  if (project.user_id !== req.session.userId) return res.status(403).json({ message: "Forbidden" });
+
+  if (!project.github_repo_name || !project.github_repo_name.includes("/")) {
+    return res.status(400).json({ message: "No GitHub repo linked to this project" });
+  }
+
+  const entry = await storage.getActivityLogEntry(entryId);
+  if (!entry || entry.project_id !== projectId) return res.status(404).json({ message: "Activity entry not found" });
+
+  const meta = (entry.metadata ?? {}) as Record<string, unknown>;
+  const isMergeToDefault =
+    (entry.event_type === "resolve_success" && meta.action === "merge_to_default") ||
+    (entry.event_type === "branch_merged" && (meta.action === "merge_to_default" || meta.action === "merge_to_platform"));
+
+  if (!isMergeToDefault) {
+    return res.status(400).json({ message: "This activity entry cannot be undone" });
+  }
+
+  const preMergeSha = meta.pre_merge_sha as string | null;
+  const postMergeSha = meta.post_merge_sha as string | null;
+  const targetBranch = (meta.target_branch ?? meta.target) as string | null;
+
+  if (!preMergeSha || !targetBranch) {
+    return res.status(400).json({ message: "This merge was performed before undo support was added and cannot be undone here. Revert it manually on GitHub." });
+  }
+
+  let token: string;
+  try {
+    token = await getAccessToken(req.session.userId!);
+  } catch (err) {
+    if (err instanceof NoGitHubTokenError) {
+      return res.status(401).json({ code: "github_token_missing", message: err.message });
+    }
+    return res.status(401).json({ code: "github_token_missing", message: "GitHub access token not found. Please sign in again." });
+  }
+
+  const [owner, repo] = project.github_repo_name.split("/");
+
+  // Check current HEAD of target branch — if new commits have landed, undo is unsafe
+  if (postMergeSha) {
+    try {
+      const currentRef = await githubFetch(token, `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(targetBranch)}`) as { object: { sha: string } };
+      if (currentRef.object.sha !== postMergeSha) {
+        return res.status(409).json({ message: `New commits have been added to ${targetBranch} since this merge. Undo isn't safe — revert it manually on GitHub.` });
+      }
+    } catch (err) {
+      if (err instanceof GitHubTokenRevokedError) {
+        return res.status(401).json({ code: "github_token_revoked", message: err.message });
+      }
+      return res.status(502).json({ message: "Could not verify the current state of the branch on GitHub." });
+    }
+  }
+
+  // Force-reset the target branch to pre-merge SHA
+  try {
+    await githubFetch(token, `/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(targetBranch)}`, {
+      method: "PATCH",
+      body: { sha: preMergeSha, force: true },
+    });
+  } catch (err) {
+    if (err instanceof GitHubTokenRevokedError) {
+      return res.status(401).json({ code: "github_token_revoked", message: err.message });
+    }
+    if (err instanceof GitHubRateLimitError) {
+      return res.status(429).json({ message: err.message });
+    }
+    return res.status(502).json({ message: "Failed to undo the merge on GitHub. Please try again or revert manually." });
+  }
+
+  await storage.addActivityLog(projectId, "undo_merge", `Merge to ${targetBranch} was undone`, {
+    target_branch: targetBranch,
+    original_entry_id: entryId,
+  });
+
+  return res.json({ message: "Merge undone successfully" });
 });
 
 router.use("/:id/connections/:connId/genius", geniusRouter);

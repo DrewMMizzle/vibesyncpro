@@ -34,6 +34,7 @@ export const platformConnections = pgTable("platform_connections", {
   behind_by: integer("behind_by").default(0),
   last_synced_at: timestamp("last_synced_at"),
   last_commit_sha: text("last_commit_sha"),
+  last_summarized_commit_sha: text("last_summarized_commit_sha"),
   stuck_state: text("stuck_state"),
   stuck_since: timestamp("stuck_since"),
   created_at: timestamp("created_at").defaultNow(),

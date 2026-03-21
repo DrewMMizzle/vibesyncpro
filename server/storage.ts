@@ -25,7 +25,7 @@ export interface IStorage {
   getConnectionsByProject(projectId: number): Promise<PlatformConnection[]>;
   getConnectionById(connectionId: number): Promise<PlatformConnection | undefined>;
   createConnection(projectId: number, platform: string, branchName: string | null): Promise<PlatformConnection>;
-  updateConnection(connectionId: number, fields: { status?: string; branch_name?: string | null; platform_url?: string | null; last_synced_at?: Date | null; ahead_by?: number; behind_by?: number; last_commit_sha?: string | null; stuck_state?: string | null; stuck_since?: Date | null }): Promise<PlatformConnection | undefined>;
+  updateConnection(connectionId: number, fields: { status?: string; branch_name?: string | null; platform_url?: string | null; last_synced_at?: Date | null; ahead_by?: number; behind_by?: number; last_commit_sha?: string | null; last_summarized_commit_sha?: string | null; stuck_state?: string | null; stuck_since?: Date | null }): Promise<PlatformConnection | undefined>;
   deleteConnection(connectionId: number): Promise<void>;
   updateProject(projectId: number, fields: { github_repo_url?: string | null; github_repo_name?: string | null; name?: string; description?: string | null }): Promise<Project | undefined>;
   upsertDiscoveredBranch(projectId: number, branchName: string, fields: { likely_platform?: string | null; ahead_by_default?: number; behind_by_default?: number; ahead_by_parent?: number; behind_by_parent?: number; last_commit_sha?: string | null; last_commit_at?: Date | null; dismissed_at?: Date | null; last_seen_at?: Date }): Promise<DiscoveredBranch>;
@@ -38,6 +38,7 @@ export interface IStorage {
   deleteProject(projectId: number): Promise<void>;
   addActivityLog(projectId: number, eventType: string, description: string, metadata?: Record<string, unknown>): Promise<ActivityLogEntry>;
   getActivityLog(projectId: number, limit?: number): Promise<ActivityLogEntry[]>;
+  getActivityLogEntry(id: number): Promise<ActivityLogEntry | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -99,7 +100,7 @@ export class DatabaseStorage implements IStorage {
     return conn;
   }
 
-  async updateConnection(connectionId: number, fields: { status?: string; branch_name?: string | null; platform_url?: string | null; last_synced_at?: Date | null; ahead_by?: number; behind_by?: number; last_commit_sha?: string | null; stuck_state?: string | null; stuck_since?: Date | null }): Promise<PlatformConnection | undefined> {
+  async updateConnection(connectionId: number, fields: { status?: string; branch_name?: string | null; platform_url?: string | null; last_synced_at?: Date | null; ahead_by?: number; behind_by?: number; last_commit_sha?: string | null; last_summarized_commit_sha?: string | null; stuck_state?: string | null; stuck_since?: Date | null }): Promise<PlatformConnection | undefined> {
     const [conn] = await db
       .update(platformConnections)
       .set({ ...fields, updated_at: new Date() })
@@ -189,6 +190,11 @@ export class DatabaseStorage implements IStorage {
       .where(eq(activityLog.project_id, projectId))
       .orderBy(desc(activityLog.created_at))
       .limit(limit);
+  }
+
+  async getActivityLogEntry(id: number): Promise<ActivityLogEntry | undefined> {
+    const [entry] = await db.select().from(activityLog).where(eq(activityLog.id, id)).limit(1);
+    return entry;
   }
 }
 
